@@ -74,7 +74,10 @@ With `explain=True`, the result also includes `TopContributors`,
 columns are derived from the existing target and reconstruction, so explanation
 does not run the detector again. Inputs with any feature count up to the model's
 target dimension retain their original column names; right-padded model dimensions
-remain part of the MAE denominator but are not presented as input features. When
+are excluded from MAE, L2, thresholding, and explanation shares because they do
+not represent caller-provided sensors. Low-level inference results expose
+`valid_feature_mask` and `score_feature_count`; `target` and `recon` retain the
+full model width for compatibility. When
 PCA or feature engineering changes the feature space, contributors use conservative
 `component_N` labels instead of claiming an incorrect mapping to original signals.
 
