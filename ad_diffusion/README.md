@@ -53,6 +53,11 @@ results = perform_anomaly_analysis_with_diffusion(
 print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
 
+
+Right-padded model dimensions are excluded from MAE, L2, and thresholding because
+they do not represent caller-provided sensors. Low-level inference results expose
+`valid_feature_mask` and `score_feature_count`; `target` and `recon` retain the
+full model width for compatibility.
 Generate a PDF report with the original signals, detected anomalies, MAE, and
 ground truth when a conventional label column such as `GT` is present. Report
 settings live on `ADDiffusionConfig`, which can also be loaded from a YAML
