@@ -128,8 +128,10 @@ def test_threshold_and_explanation_exclude_padded_dimensions(monkeypatch):
         threshold_strategy="scs",
         model_path="model.pth",
         model_config_path="config.yaml",
-        explain=True,
-        explanation_top_k=2,
+        sdk_config=anomaly_analysis.ADDiffusionConfig(
+            explain=True,
+            explanation_top_k=2,
+        ),
     )
 
     threshold_target = mock_thresholder.detect_anomalies.call_args.args[1]
