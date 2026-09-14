@@ -60,12 +60,37 @@ from models.diff_models import diff_TSDiffuser
 logger = logging.getLogger(__name__)
 
 
+FEATURE_EMBEDDING_MODES = frozenset(
+    {
+        "positional",
+        "shared_mean_norm_matched_zero_pad",
+    }
+)
+
+
 class TSDiffuser_base(nn.Module):
-    def __init__(self, target_dim, config, device, ratio=0.7):
+    def __init__(
+        self,
+        target_dim,
+        config,
+        device,
+        ratio=0.7,
+        feature_embedding_mode="positional",
+        num_active_features=None,
+    ):
         super().__init__()
+        if feature_embedding_mode not in FEATURE_EMBEDDING_MODES:
+            allowed = ", ".join(sorted(FEATURE_EMBEDDING_MODES))
+            raise ValueError(f"feature_embedding_mode must be one of: {allowed}")
         self.device = device
         self.ratio = ratio
         self.target_dim = target_dim
+        self.feature_embedding_mode = feature_embedding_mode
+        self.num_active_features = None
+        if num_active_features is not None:
+            self.set_num_active_features(num_active_features)
+        if feature_embedding_mode == "shared_mean_norm_matched_zero_pad" and num_active_features is None:
+            raise ValueError("num_active_features is required for shared_mean_norm_matched_zero_pad")
 
         self.ddim_eta = 1
         self.emb_time_dim = config["model"]["timeemb"]
@@ -183,6 +208,58 @@ class TSDiffuser_base(nn.Module):
                 cond_mask[i] = cond_mask[i] * for_pattern_mask[i - 1]
         return cond_mask
 
+    def set_num_active_features(self, num_active_features):
+        """Set explicit non-padding feature count for one uniform-width inference batch."""
+        if (
+            isinstance(num_active_features, bool)
+            or not isinstance(num_active_features, int)
+            or not 1 <= num_active_features <= self.target_dim
+        ):
+            raise ValueError(f"num_active_features must be an integer in [1, {self.target_dim}]")
+        self.num_active_features = num_active_features
+
+    def _shared_feature_vector(self, feature_embed, *, norm_matched):
+        shared = feature_embed.mean(dim=0)
+        if norm_matched:
+            reference_norm = feature_embed.norm(dim=1).mean()
+            shared_norm = shared.norm().clamp_min(torch.finfo(shared.dtype).eps)
+            shared = shared * (reference_norm / shared_norm)
+        return shared
+
+    def get_feature_embedding_diagnostics(self):
+        """Return compact embedding-norm diagnostics without exposing weights."""
+        feature_embed = self.embed_layer(torch.arange(self.target_dim).to(self.device))
+        raw_shared = self._shared_feature_vector(feature_embed, norm_matched=False)
+        norm_matched = self._shared_feature_vector(feature_embed, norm_matched=True)
+        reference_norm = feature_embed.norm(dim=1).mean()
+        active_count = self.num_active_features or self.target_dim
+        return {
+            "embedding_weight_shape": list(self.embed_layer.weight.shape),
+            "raw_shared_mean_l2_norm": float(raw_shared.norm().detach().cpu()),
+            "mean_embedding_row_l2_norm": float(reference_norm.detach().cpu()),
+            "norm_matched_shared_l2_norm": float(norm_matched.norm().detach().cpu()),
+            "raw_mean_to_reference_norm_ratio": float(
+                (raw_shared.norm() / reference_norm.clamp_min(torch.finfo(reference_norm.dtype).eps)).detach().cpu()
+            ),
+            "num_active_features": active_count,
+            "num_padded_features": self.target_dim - active_count,
+        }
+
+    def _feature_embedding_for_side_info(self):
+        feature_embed = self.embed_layer(torch.arange(self.target_dim).to(self.device))
+        if self.feature_embedding_mode == "shared_mean_norm_matched_zero_pad":
+            shared = self._shared_feature_vector(feature_embed, norm_matched=True)
+            feature_embed = shared.unsqueeze(0).expand_as(feature_embed)
+
+        feature_embed = self.embed_norm(feature_embed)
+        if (
+            self.feature_embedding_mode == "shared_mean_norm_matched_zero_pad"
+            and self.num_active_features < self.target_dim
+        ):
+            feature_embed = feature_embed.clone()
+            feature_embed[self.num_active_features :] = 0
+        return feature_embed
+
     def get_side_info(self, observed_tp, cond_mask):
         B, K, L = cond_mask.shape
 
@@ -191,9 +268,7 @@ class TSDiffuser_base(nn.Module):
         time_embed = self.time_embed_norm(time_embed)
         time_embed = time_embed.unsqueeze(2).expand(-1, -1, K, -1)
 
-        feature_embed = self.embed_layer(torch.arange(self.target_dim).to(self.device))  # (K,emb)
-        # Apply LayerNorm to feature embeddings
-        feature_embed = self.embed_norm(feature_embed)
+        feature_embed = self._feature_embedding_for_side_info()  # (K,emb)
         feature_embed = feature_embed.unsqueeze(0).unsqueeze(0).expand(B, L, -1, -1)
 
         side_info = torch.cat([time_embed, feature_embed], dim=-1)  # (B,L,K,*)
@@ -872,7 +947,17 @@ class TSDiffuser_base(nn.Module):
 
 
 class TSDiffuser_Generic(TSDiffuser_base):
-    def __init__(self, config, device, target_dim=None, ratio=0.7, cut_length_strategy="none", default_cut_length=0):
+    def __init__(
+        self,
+        config,
+        device,
+        target_dim=None,
+        ratio=0.7,
+        cut_length_strategy="none",
+        default_cut_length=0,
+        feature_embedding_mode="positional",
+        num_active_features=None,
+    ):
         """
         Generic TSDiffuser class that works with any dataset.
 
@@ -891,7 +976,14 @@ class TSDiffuser_Generic(TSDiffuser_base):
             else:
                 raise ValueError("target_dim must be provided either as parameter or in config['model']['target_dim']")
 
-        super(TSDiffuser_Generic, self).__init__(target_dim, config, device, ratio)
+        super(TSDiffuser_Generic, self).__init__(
+            target_dim,
+            config,
+            device,
+            ratio,
+            feature_embedding_mode=feature_embedding_mode,
+            num_active_features=num_active_features,
+        )
         self.cut_length_strategy = cut_length_strategy
         self.default_cut_length = default_cut_length
 

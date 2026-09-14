@@ -27,7 +27,7 @@ class FakeModel:
         return self
 
 
-def install_worker_stubs(monkeypatch, *, fake_evaluate):
+def install_worker_stubs(monkeypatch, *, fake_evaluate, captured_model_kwargs=None):
     fake_torch = types.SimpleNamespace(
         load=lambda *args, **kwargs: {"model": {"weights": 1}},
         device=lambda value: value,
@@ -47,7 +47,13 @@ def install_worker_stubs(monkeypatch, *, fake_evaluate):
 
     fake_models_pkg = types.ModuleType("models")
     fake_main_model = types.ModuleType("models.main_model")
-    fake_main_model.TSDiffuser_Generic = lambda *args, **kwargs: FakeModel()
+
+    def fake_model(*args, **kwargs):
+        if captured_model_kwargs is not None:
+            captured_model_kwargs.update(kwargs)
+        return FakeModel()
+
+    fake_main_model.TSDiffuser_Generic = fake_model
     fake_models_pkg.main_model = fake_main_model
 
     fake_inference_ad = types.ModuleType("sdk.inference_ad")
@@ -89,6 +95,7 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
         "preprocess_model_dir": None,
         "use_dpm_solver": False,
         "dpm_steps": 20,
+        "num_active_features": 3,
         "valid_feature_mask": [True, True, True, False],
     }
     args_path.write_text(json.dumps(args))
@@ -97,6 +104,7 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_path):
     events = []
+    captured_model_kwargs = {}
 
     class FakeSharedMemory:
         def __init__(self, name):
@@ -132,7 +140,11 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
             "recon": np.array([[4.0]]),
         }
 
-    fake_inference_ad = install_worker_stubs(monkeypatch, fake_evaluate=fake_evaluate)
+    fake_inference_ad = install_worker_stubs(
+        monkeypatch,
+        fake_evaluate=fake_evaluate,
+        captured_model_kwargs=captured_model_kwargs,
+    )
 
     def fake_get_dataloader_from_windows(windows, *, batch_size, split, window_indices):
         events.append(("loaders", fake_shm.closed, windows.shape, batch_size, split, tuple(window_indices)))
@@ -149,6 +161,8 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
     saved = json.loads(result_path.read_text())
     assert saved["gpu_id"] == 0
     assert saved["results"]["residual"] == [1.0]
+    assert captured_model_kwargs["feature_embedding_mode"] == "shared_mean_norm_matched_zero_pad"
+    assert captured_model_kwargs["num_active_features"] == 3
     assert events == [
         ("loaders", False, (2, 3, 4), 32, 4, (0, 1)),
         ("evaluate", False, ["loader1"], ["loader2"], 5, False, 20, [7, 8], [True, True, True, False]),

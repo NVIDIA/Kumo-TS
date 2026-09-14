@@ -114,6 +114,7 @@ PROFILE_RESIDUALS = os.environ.get("TESSERACT_PROFILE_RESIDUALS", "0") == "1"
 
 # Default seed for reproducibility
 DEFAULT_SEED = 42
+DEFAULT_FEATURE_EMBEDDING_MODE = "shared_mean_norm_matched_zero_pad"
 INFERENCE_BATCH_SIZE = 32
 
 
@@ -1137,6 +1138,7 @@ def inference_ad_tesseract2(
     preprocess_model_dir=None,
     use_dpm_solver=True,
     dpm_steps=20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ):
     """
     Perform anomaly detection inference using NV-Tesseract AD diffusion model.
@@ -1155,6 +1157,11 @@ def inference_ad_tesseract2(
         preprocess_model_dir: Directory containing preprocessing model (optional)
         use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` to use the checkpoint's original
+            position-specific feature embeddings.
 
     Returns:
         dict: Dictionary containing:
@@ -1165,6 +1172,7 @@ def inference_ad_tesseract2(
             - target_dim: Target dimension used by the model
             - valid_feature_mask: Model dimensions included in residual scores
             - score_feature_count: Number of dimensions included in scores
+            - feature_embedding_mode: Feature-embedding mode used for inference
 
     Note:
         For reproducible results, call set_seed() before this function.
@@ -1181,8 +1189,20 @@ def inference_ad_tesseract2(
         config = load_config(resolved_config)
 
     target_dim = config["model"].get("target_dim", 40)
+    valid_feature_mask = _score_feature_mask_for_dataframe(
+        data,
+        target_dim,
+        model_dir=preprocess_model_dir,
+    )
 
-    model = TSDiffuser_Generic(config, device=device, target_dim=target_dim, ratio=0.7)
+    model = TSDiffuser_Generic(
+        config,
+        device=device,
+        target_dim=target_dim,
+        ratio=0.7,
+        feature_embedding_mode=feature_embedding_mode,
+        num_active_features=int(valid_feature_mask.sum()),
+    )
     if isinstance(checkpoint, dict):
         if "model" in checkpoint:
             # Load model state
@@ -1213,6 +1233,7 @@ def inference_ad_tesseract2(
 
     # Add target_dim to results
     results["target_dim"] = target_dim
+    results["feature_embedding_mode"] = feature_embedding_mode
 
     return results
 
@@ -1230,6 +1251,7 @@ def inference_ad_tesseract2_mp(
     deterministic: bool = True,
     use_dpm_solver: bool = True,
     dpm_steps: int = 20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> dict:
     """
     Multi-GPU inference using subprocess workers and shared-memory windows.
@@ -1251,6 +1273,10 @@ def inference_ad_tesseract2_mp(
         deterministic: If True, enable deterministic behavior in workers.
         use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
 
     Returns:
         dict with residual, residual_l2, target, recon, target_dim,
@@ -1275,6 +1301,7 @@ def inference_ad_tesseract2_mp(
             preprocess_model_dir=preprocess_model_dir,
             use_dpm_solver=use_dpm_solver,
             dpm_steps=dpm_steps,
+            feature_embedding_mode=feature_embedding_mode,
         )
 
     if gpu_ids is None:
@@ -1364,6 +1391,8 @@ def inference_ad_tesseract2_mp(
                     "preprocess_model_dir": preprocess_model_dir,
                     "use_dpm_solver": use_dpm_solver,
                     "dpm_steps": dpm_steps,
+                    "feature_embedding_mode": feature_embedding_mode,
+                    "num_active_features": int(valid_feature_mask.sum()),
                     "valid_feature_mask": valid_feature_mask.tolist(),
                 }
                 with open(args_file, "w") as f:
@@ -1396,7 +1425,9 @@ def inference_ad_tesseract2_mp(
                     k: np.array(v) if isinstance(v, list) else v for k, v in data["results"].items()
                 }
 
-        return _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results = _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results["feature_embedding_mode"] = feature_embedding_mode
+        return results
     finally:
         _cleanup_shared_memory(shm_info)
 
