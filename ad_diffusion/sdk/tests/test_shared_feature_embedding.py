@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-
 from models.main_model import TSDiffuser_Generic
 from sdk import inference_ad
 
@@ -140,9 +139,7 @@ def test_embedding_diagnostics_contain_norms_and_feature_counts() -> None:
     ).get_feature_embedding_diagnostics()
 
     assert diagnostics["embedding_weight_shape"] == [3, 4]
-    assert diagnostics["norm_matched_shared_l2_norm"] == pytest.approx(
-        diagnostics["mean_embedding_row_l2_norm"]
-    )
+    assert diagnostics["norm_matched_shared_l2_norm"] == pytest.approx(diagnostics["mean_embedding_row_l2_norm"])
     assert diagnostics["raw_mean_to_reference_norm_ratio"] > 0
     assert diagnostics["num_active_features"] == 2
     assert diagnostics["num_padded_features"] == 1
@@ -163,7 +160,7 @@ def test_single_gpu_api_defaults_to_shared_embedding(monkeypatch: pytest.MonkeyP
     captured: dict[str, object] = {}
 
     class FakeModel:
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             captured.update(kwargs)
 
         def load_state_dict(self, _state) -> None:

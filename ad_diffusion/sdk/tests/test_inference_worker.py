@@ -48,7 +48,7 @@ def install_worker_stubs(monkeypatch, *, fake_evaluate, captured_model_kwargs=No
     fake_models_pkg = types.ModuleType("models")
     fake_main_model = types.ModuleType("models.main_model")
 
-    def fake_model(*args, **kwargs):
+    def fake_model(*args: object, **kwargs: object):
         if captured_model_kwargs is not None:
             captured_model_kwargs.update(kwargs)
         return FakeModel()
