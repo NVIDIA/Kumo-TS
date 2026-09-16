@@ -28,6 +28,7 @@ Changes included in the release branch since v0.1.0. The release date will be se
 
 - Isolated temporary forecasting CSVs per call to prevent collisions between concurrent requests. ([#34](https://github.com/NVIDIA/NV-Tesseract/pull/34))
 - Aligned AD inference normalization with training and returned reconstructions in the same scale as targets. ([#41](https://github.com/NVIDIA/NV-Tesseract/pull/41))
+- Restored AD preprocessing artifacts with the reusable `AdaptiveNormalizer`, preserving fitted transforms through JSON save/load; added round-trip coverage for normalizers, scalers, transformers, and PCA. ([#71](https://github.com/NVIDIA/NV-Tesseract/pull/71))
 - Kept shared memory open until AD worker inference completes. ([#47](https://github.com/NVIDIA/NV-Tesseract/pull/47))
 - Aligned DARR input and context channel ordering when the same columns arrive in different orders. ([#52](https://github.com/NVIDIA/NV-Tesseract/pull/52))
 - Corrected base/cross-channel checkpoint selection and inferred cross-channel mode from checkpoint weights. ([#73](https://github.com/NVIDIA/NV-Tesseract/pull/73))
