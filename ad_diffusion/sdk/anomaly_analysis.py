@@ -16,6 +16,7 @@ import yaml
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sdk.explainability import explain_reconstruction_anomalies
 from sdk.inference_ad import (
+    DEFAULT_FEATURE_EMBEDDING_MODE,
     _resolve_model_paths,
     get_model_target_dim,
     inference_ad_tesseract2_mp,
@@ -100,6 +101,7 @@ def perform_anomaly_analysis_with_diffusion(
     explain: bool = False,
     explanation_top_k: int = 3,
     sdk_config: ADDiffusionConfig | str | Path | None = None,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> pd.DataFrame:
     """
     Perform anomaly analysis using Tesseract AD Diffusion Model.
@@ -121,6 +123,10 @@ def perform_anomaly_analysis_with_diffusion(
         explanation_top_k: Maximum number of contributors returned per anomaly.
         sdk_config: Reporting `ADDiffusionConfig`, YAML path, or `None` for defaults.
             See `ADDiffusionConfig` for the field reference.
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
 
     Returns:
         DataFrame with original data and anomaly detection results
@@ -194,6 +200,7 @@ def perform_anomaly_analysis_with_diffusion(
         config_path=resolved_config,
         nsample=nsample,
         preprocess_model_dir=str(preprocess_model_dir) if preprocess_model_dir else None,
+        feature_embedding_mode=feature_embedding_mode,
     )
 
     # Extract residual scores (MAE) from results

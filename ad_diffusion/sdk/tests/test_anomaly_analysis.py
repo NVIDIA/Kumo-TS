@@ -87,6 +87,7 @@ def test_perform_anomaly_analysis_with_scs_strategy(monkeypatch, numeric_df, inf
     assert kwargs["model_path"] == "model.pth"
     assert kwargs["config_path"] == "config.yaml"
     assert kwargs["nsample"] == 7
+    assert kwargs["feature_embedding_mode"] == "shared_mean_norm_matched_zero_pad"
     mock_thresholder.detect_anomalies.assert_called_once_with(
         inference_results["residual"], inference_results["target"]
     )
