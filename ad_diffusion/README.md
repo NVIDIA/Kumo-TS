@@ -47,6 +47,7 @@ results = perform_anomaly_analysis_with_diffusion(
     # model_path="path/to/your/model.pth",         # optional; defaults to final_model.pth
     # model_config_path="path/to/config.yaml",     # optional; defaults to curriculum_medium.yaml
     nsample=15,
+    feature_embedding_mode="shared_mean_norm_matched_zero_pad",  # or "positional"
     preprocess_model_dir="path/to/preprocessing/models",  # optional
     explain=True,
     explanation_top_k=3,
@@ -56,35 +57,10 @@ results = perform_anomaly_analysis_with_diffusion(
 print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
 
-### Feature embedding mode
-
-Anomaly-detection inference supports two feature-embedding modes. The default
-uses a shared, norm-matched checkpoint embedding for active features and zeros
-feature side information at SDK-identified padding positions:
-
-```python
-results = perform_anomaly_analysis_with_diffusion(
-    df=df,
-    threshold_strategy="scs",
-    feature_embedding_mode="shared_mean_norm_matched_zero_pad",
-)
-```
-
-Pass `"positional"` to restore the checkpoint's legacy absolute-position
-feature embeddings:
-
-```python
-feature_embedding_mode="positional"
-```
-
-`shared_mean_norm_matched_zero_pad` computes the mean of the checkpoint's
-learned feature-embedding rows, rescales it to the mean row L2 norm, and
-broadcasts it to active features. The active feature count comes from the SDK
-preprocessing boundary; padding is never inferred from zero-valued sensor
-samples. The method does not rewrite the checkpoint or modify the Feature
-Transformer. It zeros only padding feature side information and does not remove
-padded tokens from cross-channel attention, so it does not make the complete
-architecture permutation-equivariant.
+`feature_embedding_mode` defaults to `shared_mean_norm_matched_zero_pad`, which
+shares a norm-matched checkpoint embedding across active features and zeros only
+SDK-identified padding positions. Use `positional` to retain the checkpoint's
+original position-specific feature embeddings.
 
 Reporting settings (`report_path`, etc.) live on `ADDiffusionConfig`, which can
 also be loaded from a YAML file — a fully commented template is available at
