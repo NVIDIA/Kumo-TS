@@ -1036,7 +1036,20 @@ def download_model_weights(
                     token=token,
                     library_name="nv-tesseract",
                 )
-                logger.info("Downloaded: %s", file_path.name)
+                # snapshot_download() can return normally even when the file wasn't
+                # actually fetched (e.g. a 429 during the HEAD/metadata call causes
+                # huggingface_hub to silently fall back to a stale/incomplete local
+                # file instead of raising). Verify the artifact actually landed
+                # before reporting success.
+                if not file_path.exists() or file_path.stat().st_size == 0:
+                    raise RuntimeError(
+                        f"snapshot_download() returned without error but {file_path.name} is "
+                        f"missing or empty at {file_path}. This can happen when Hugging Face "
+                        "rate-limits the request (HTTP 429); retry with force_download=True, "
+                        "set HUGGINGFACE_HUB_TOKEN to use an authenticated (higher-limit) "
+                        "request, or avoid issuing concurrent downloads (e.g. one per DDP rank)."
+                    )
+                logger.info("Downloaded: %s (%d bytes)", file_path.name, file_path.stat().st_size)
 
     except Exception as e:
         error_msg = f"Failed to download model weights from {repo_id}: {e}"
