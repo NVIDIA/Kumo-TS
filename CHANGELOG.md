@@ -2,9 +2,9 @@
 
 All notable changes to NV-Tesseract are documented in this file.
 
-## v1.0.0 - Unreleased
+## v1.0.0 - 2026-09-21
 
-Changes included in the release branch since v0.1.0. The release date will be set when the release is finalized.
+Changes since v0.1.0.
 
 ### Added
 
@@ -33,12 +33,14 @@ Changes included in the release branch since v0.1.0. The release date will be se
 - Aligned DARR input and context channel ordering when the same columns arrive in different orders. ([#52](https://github.com/NVIDIA/NV-Tesseract/pull/52))
 - Corrected base/cross-channel checkpoint selection and inferred cross-channel mode from checkpoint weights. ([#73](https://github.com/NVIDIA/NV-Tesseract/pull/73))
 - Excluded SDK-added padding from AD MAE, L2, and thresholding, while retaining full-width target and reconstruction outputs. Low-level results include `valid_feature_mask` and `score_feature_count`. Scores may differ for padded inputs. ([#79](https://github.com/NVIDIA/NV-Tesseract/pull/79))
+- Verify downloaded model weight files before reporting a successful download in both SDKs. ([#82](https://github.com/NVIDIA/NV-Tesseract/pull/82))
+- Clarified that AD `Anomaly` output uses int64 values (`0` = normal, `1` = anomaly); detection behavior is unchanged.
 - Synchronized forecasting lockfile metadata with its dependency declarations without changing locked package versions.
 
-### Release status
+### Notes
 
-- PRs [#44](https://github.com/NVIDIA/NV-Tesseract/pull/44) and [#70](https://github.com/NVIDIA/NV-Tesseract/pull/70) remain pending and are not included in these notes.
-- Package metadata currently remains `tesseract_forecasting` 0.1.0 and `ad-diffusion-oss` 1.0.0; final release version preparation is pending.
+- Repository release version: `v1.0.0`.
+- Package metadata versions: `tesseract_forecasting` 1.0.0 and `ad-diffusion-oss` 1.0.0.
 
 ## v0.1.0 - 2026-07-07
 
