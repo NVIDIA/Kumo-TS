@@ -54,6 +54,11 @@ print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
 
 
+The returned DataFrame preserves the input columns and adds `Anomaly`
+(`int64`: `0` = normal, `1` = anomaly) and `MAE` (floating-point anomaly score).
+JSON output uses numeric `0`/`1`. For boolean masking, use
+`results["Anomaly"].eq(1)`; use `.eq(0)` to select normal rows.
+
 Right-padded model dimensions are excluded from MAE, L2, and thresholding because
 they do not represent caller-provided sensors. Low-level inference results expose
 `valid_feature_mask` and `score_feature_count`; `target` and `recon` retain the

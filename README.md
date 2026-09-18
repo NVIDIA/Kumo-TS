@@ -111,7 +111,7 @@ results = perform_anomaly_analysis_with_diffusion(
     threshold_strategy="scs",  # or "macs"
     nsample=15,
 )
-# Returns DataFrame with anomaly scores and binary anomaly flags
+# Returns original columns + Anomaly (int64: 0 = normal, 1 = anomaly) + MAE (float)
 ```
 
 ## Requirements

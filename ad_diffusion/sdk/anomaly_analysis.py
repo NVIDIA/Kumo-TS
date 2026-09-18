@@ -115,7 +115,8 @@ def perform_anomaly_analysis_with_diffusion(
             See `ADDiffusionConfig` for the field reference.
 
     Returns:
-        DataFrame with original data and anomaly detection results
+        DataFrame with original columns, Anomaly (int64: 0 = normal, 1 = anomaly),
+        and MAE (floating-point anomaly score).
     """
     cfg = _resolve_sdk_config(sdk_config)
 
