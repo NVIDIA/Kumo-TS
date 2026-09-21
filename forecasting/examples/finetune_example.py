@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Fine-tune the NV-Tesseract forecasting head on a user CSV.
+Fine-tune the Kumo-Forecast head on a user CSV.
 
 Run from the forecasting directory:
     uv run python examples/finetune_example.py \
@@ -288,7 +288,7 @@ def save_artifacts(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Fine-tune NV-Tesseract forecasting on a CSV dataset.")
+    parser = argparse.ArgumentParser(description="Fine-tune Kumo-Forecast on a CSV dataset.")
     data_group = parser.add_mutually_exclusive_group()
     data_group.add_argument("--csv", type=str, help="Single CSV to split temporally into train/val/test.")
     data_group.add_argument("--train-csv", type=str, help="Training CSV. Requires --val-csv.")
@@ -306,10 +306,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--ckpt-init",
         type=str,
         default="auto",
-        help="Checkpoint to warm-start from. Use 'auto' for published NV-Tesseract weights or 'none' for a fresh head.",
+        help="Checkpoint to warm-start from. Use 'auto' for published Kumo-TS weights or 'none' for a fresh head.",
     )
     parser.add_argument("--standardizer-init", type=str, default="standardizer.pkl")
-    parser.add_argument("--repo-id", type=str, default="nvidia/nv-tesseract-forecasting")
+    parser.add_argument("--repo-id", type=str, default="nvidia/Kumo-Forecast")
     parser.add_argument("--seq-len", type=int, default=512)
     parser.add_argument("--forecast-horizon", type=int, default=72)
     parser.add_argument("--stride", type=int, default=None)

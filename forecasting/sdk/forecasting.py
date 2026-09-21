@@ -303,7 +303,7 @@ def clear_model_cache():
 def download_model_weights(
     standardizer_pkl: str = "standardizer.pkl",
     ckpt: str = CHECKPOINT_CROSS_CHANNEL,
-    repo_id: str = "nvidia/nv-tesseract-forecasting",
+    repo_id: str = "nvidia/Kumo-Forecast",
     force_download: bool = False,
     revision: str | None = None,
     cache_dir: str | Path | None = None,
@@ -364,7 +364,7 @@ def download_model_weights(
                     cache_dir=str(cache_dir) if cache_dir else None,
                     local_files_only=local_files_only,
                     token=token,
-                    library_name="nv-tesseract",
+                    library_name="kumo-ts",
                 )
                 logger.info("Downloaded: %s", file_path.name)
 
@@ -1692,7 +1692,7 @@ def _build_pdf_report(
         fig.text(
             0.5,
             0.94,
-            "NV-Tesseract Forecasting Interpretability Report",
+            "Kumo-Forecast Interpretability Report",
             ha="center",
             fontsize=18,
             fontweight="bold",
@@ -2536,7 +2536,7 @@ def perform_forecasting(
     context_df: pd.DataFrame | None = None,  # Optional context DataFrame for DARR mode
 ) -> pd.DataFrame:
     """
-    Perform time series forecasting using NV-Tesseract with optional context-enhanced mode (DARR).
+    Perform time series forecasting using Kumo-TS with optional context-enhanced mode (DARR).
     Supports autoregressive forecasting for horizons beyond the model's native capability.
 
     ALWAYS uses InferenceOnlyDataset - only requires seq_len rows for inference.
@@ -2992,16 +2992,16 @@ def perform_forecasting(
 
 class NVTesseractForecasting(
     ModelHubMixin,
-    library_name="nv-tesseract",
+    library_name="kumo-ts",
     tags=["time-series", "forecasting"],
     repo_url="https://github.com/NVIDIA/NV-Tesseract",
-    docs_url="https://huggingface.co/nvidia/nv-tesseract-forecasting",
+    docs_url="https://huggingface.co/nvidia/Kumo-Forecast",
 ):
-    """NV-Tesseract Forecasting model with HuggingFace Hub integration.
+    """Kumo-Forecast model with HuggingFace Hub integration.
 
     Example::
 
-        model = NVTesseractForecasting.from_pretrained("nvidia/nv-tesseract-forecasting")
+        model = NVTesseractForecasting.from_pretrained("nvidia/Kumo-Forecast")
         predictions = model.forecast(df, forecast_horizon=72)
 
         # Save weights locally or push to Hub
