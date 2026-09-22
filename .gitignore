@@ -33,6 +33,7 @@ model_weights/
 # Data & outputs
 *.csv
 !Kumo-Forecast/sdk/tests/datasets/*.csv
+!Kumo-Anomaly/examples/datasets/test-dataset.csv
 preprocessed_data.pt
 interpretability_output/
 

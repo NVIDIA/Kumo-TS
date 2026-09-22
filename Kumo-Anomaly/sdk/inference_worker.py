@@ -67,7 +67,7 @@ def main():
         import numpy as np
         import torch
 
-        # Add path to find modules in the ad_diffusion directory
+        # Add path to find modules in the Kumo-Anomaly directory
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
         from models.main_model import TSDiffuser_Generic
