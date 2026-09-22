@@ -60,7 +60,7 @@ def main() -> int:
     parser.add_argument(
         "--roots",
         nargs="*",
-        default=["forecasting", "ad_diffusion", "scripts"],
+        default=["Kumo-Forecast", "ad_diffusion", "scripts"],
         type=Path,
         help="Directories to scan (relative to repo root)",
     )
