@@ -1,6 +1,6 @@
 # Kumo-Forecast
 
-Tesseract Forecasting Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting.
+Kumo-Forecast Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting.
 
 ## Quick Start with UV
 

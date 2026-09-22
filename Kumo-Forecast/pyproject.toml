@@ -1,7 +1,7 @@
 [project]
-name = "tesseract_forecasting"
+name = "kumo-forecast"
 version = "0.1.0"
-description = "Tesseract Forecasting Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting"
+description = "Kumo-Forecast Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
