@@ -36,7 +36,7 @@ include = [
 ]
 exclude = [
     "__pycache__/**",
-    "forecasting/sdk/tests/**",
+    "Kumo-Forecast/sdk/tests/**",
     "*.pyc",
     "*.pyo",
     "*.pyd",
@@ -53,7 +53,7 @@ include = [
 ]
 exclude = [
     "__pycache__/**",
-    "forecasting/sdk/tests/**",
+    "Kumo-Forecast/sdk/tests/**",
     "*.pyc",
     "*.pyo",
     "*.pyd",

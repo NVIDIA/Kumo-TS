@@ -17,7 +17,7 @@ pip install uv
 ### 2. Set Up the Project
 
 ```bash
-cd forecasting/
+cd Kumo-Forecast/
 uv sync --group dev
 uv pip install -e .  # Install package in editable mode for clean imports
 ```
@@ -148,7 +148,7 @@ source .venv/bin/activate  # Activate environment (Unix)
 ## Project Structure
 
 ```
-forecasting/
+Kumo-Forecast/
 ├── pyproject.toml                    # Project configuration and dependencies
 ├── README.md                         # This file
 ├── examples/

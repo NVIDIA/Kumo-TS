@@ -26,9 +26,9 @@ Upstream license texts for **vendored or fork-derived** source are stored under 
 
 ## Runtime dependencies (PyPI)
 
-The packages below are **direct** runtime dependencies declared in [`forecasting/pyproject.toml`](forecasting/pyproject.toml) and [`ad_diffusion/pyproject.toml`](ad_diffusion/pyproject.toml). Each package is subject to its own license (typically included in the package metadata on PyPI and in installed distributions). SPDX or common names are shown for convenience; refer to the package for authoritative terms.
+The packages below are **direct** runtime dependencies declared in [`Kumo-Forecast/pyproject.toml`](Kumo-Forecast/pyproject.toml) and [`ad_diffusion/pyproject.toml`](ad_diffusion/pyproject.toml). Each package is subject to its own license (typically included in the package metadata on PyPI and in installed distributions). SPDX or common names are shown for convenience; refer to the package for authoritative terms.
 
-### `forecasting/` (`tesseract_forecasting`)
+### `Kumo-Forecast/` (`tesseract_forecasting`)
 
 | Component | Declared requirement | Typical license (verify on PyPI) |
 |-----------|----------------------|----------------------------------|

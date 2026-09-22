@@ -5,7 +5,7 @@
 """
 Fine-tune the Kumo-Forecast head on a user CSV.
 
-Run from the forecasting directory:
+Run from the Kumo-Forecast directory:
     uv run python examples/finetune_example.py \
         --csv /path/to/timeseries.csv \
         --timestamp-col timestamp \

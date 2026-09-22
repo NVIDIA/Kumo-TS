@@ -16,7 +16,7 @@ Clone the repo and install the desired package:
 #### Forecasting
 ```bash
 git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/forecasting
+cd NV-Tesseract/Kumo-Forecast
 uv sync --python 3.12   # or: pip install -e .
 ```
 
@@ -53,14 +53,14 @@ forecasts = perform_forecasting(df=df, config=config)
 
 Forecasting options can also be moved into a YAML file and passed as the typed
 configuration source — a fully commented template is packaged at
-`forecasting/sdk/forecasting_inference_config.yaml`:
+`Kumo-Forecast/sdk/forecasting_inference_config.yaml`:
 
 ```python
 from sdk.forecasting import perform_forecasting
 
 results = perform_forecasting(
     df=df,
-    config="forecasting/sdk/forecasting_inference_config.yaml",
+    config="Kumo-Forecast/sdk/forecasting_inference_config.yaml",
 )
 ```
 
@@ -97,7 +97,7 @@ results = perform_forecasting(df=df, config=interp_config)
 # Bundle written under interpretability_output/run_<UTC-timestamp>/
 ```
 
-See [`forecasting/README.md`](forecasting/README.md#interpretability) for the full interpretability reference and artifact catalogue.
+See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md#interpretability) for the full interpretability reference and artifact catalogue.
 
 #### Anomaly Detection
 ```python
@@ -125,9 +125,9 @@ results = perform_anomaly_analysis_with_diffusion(
 ## Usage
 
 ### Forecasting
-- See [`forecasting/README.md`](forecasting/README.md) for full API reference and examples
-- Run [`forecasting/sdk/quick_example.py`](forecasting/sdk/quick_example.py) for an end-to-end example
-- Fine-tune on your own CSV with [`forecasting/examples/finetune_example.py`](forecasting/examples/finetune_example.py)
+- See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md) for full API reference and examples
+- Run [`Kumo-Forecast/sdk/quick_example.py`](Kumo-Forecast/sdk/quick_example.py) for an end-to-end example
+- Fine-tune on your own CSV with [`Kumo-Forecast/examples/finetune_example.py`](Kumo-Forecast/examples/finetune_example.py)
 
 ### Anomaly Detection
 - See [`ad_diffusion/README.md`](ad_diffusion/README.md) for detailed usage and configuration
@@ -138,7 +138,7 @@ results = perform_anomaly_analysis_with_diffusion(
 
 | Module | Status | Description |
 |--------|--------|-------------|
-| `forecasting/` | ✅ Available | Time series forecasting with DARR (context-enhanced) mode |
+| `Kumo-Forecast/` | ✅ Available | Time series forecasting with DARR (context-enhanced) mode |
 | `ad_diffusion/` | ✅ Available | Diffusion-based multivariate anomaly detection with adaptive thresholding |
 
 ## Repository Structure
@@ -153,7 +153,7 @@ NV-Tesseract/
 ├── third_party/                 # Upstream LICENSE files for vendored/in-tree third-party code
 │   ├── README.md
 │   └── dpm-solver/
-├── forecasting/                 # Time series forecasting
+├── Kumo-Forecast/                 # Time series forecasting
 │   ├── pyproject.toml           # Project configuration
 │   ├── README.md                # Forecasting documentation
 │   ├── backbone.py              # Vendored transformer backbone

@@ -37,7 +37,7 @@ jobs:
         run: make spdx-check
 
       - name: Install forecasting package and run tests
-        working-directory: forecasting
+        working-directory: Kumo-Forecast
         run: |
           uv sync --group dev --frozen --python 3.12
           uv run --python 3.12 pytest sdk/tests examples/tests -q --tb=short
