@@ -17,6 +17,12 @@ dependencies = [
     "matplotlib>=3.8.0,<4",
 ]
 
+[project.urls]
+Homepage = "https://github.com/NVIDIA/Kumo-TS"
+Repository = "https://github.com/NVIDIA/Kumo-TS"
+Documentation = "https://github.com/NVIDIA/Kumo-TS/blob/dev/Kumo-Anomaly/README.md"
+Issues = "https://github.com/NVIDIA/Kumo-TS/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0,<9",
