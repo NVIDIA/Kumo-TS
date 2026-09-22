@@ -42,8 +42,8 @@ jobs:
           uv sync --group dev --frozen --python 3.12
           uv run --python 3.12 pytest sdk/tests examples/tests -q --tb=short
 
-      - name: Install AD diffusion package and run tests
-        working-directory: ad_diffusion
+      - name: Install Kumo-Anomaly package and run tests
+        working-directory: Kumo-Anomaly
         run: |
           uv sync --group dev --frozen --python 3.12
           uv run --python 3.12 pytest sdk/tests examples/tests -q --tb=short
