@@ -553,7 +553,7 @@ class TSDiffuser_base(nn.Module):
         try:
             from utils.dpm_solver_pytorch import DPM_Solver, NoiseScheduleVP, model_wrapper
         except ImportError as e:
-            raise ImportError("DPM-Solver not found. Use the local copy (ad_diffusion_oss.dpm_solver_pytorch).") from e
+            raise ImportError("DPM-Solver not found. Use the local copy (utils.dpm_solver_pytorch).") from e
 
         B, K, L = observed_data.shape
         imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)

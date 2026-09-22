@@ -5,7 +5,7 @@ NVIDIA Tesseract is an open-source time series analysis library covering forecas
 ## Overview
 
 - **Forecasting**: DataFrame-first API for multivariate time series forecasting with DARR (context-enhanced) mode, built on a vendored backbone.
-- **Anomaly Detection**: Diffusion-based multivariate anomaly detection using novel proprietary algorithms.
+- **Kumo-Anomaly**: Diffusion-based multivariate anomaly detection using novel proprietary algorithms.
 
 ## Getting Started
 
@@ -20,10 +20,10 @@ cd NV-Tesseract/Kumo-Forecast
 uv sync --python 3.12   # or: pip install -e .
 ```
 
-#### Anomaly Detection
+#### Kumo-Anomaly
 ```bash
 git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/ad_diffusion
+cd NV-Tesseract/Kumo-Anomaly
 uv sync --python 3.12   # or: pip install -e .
 ```
 
@@ -99,7 +99,7 @@ results = perform_forecasting(df=df, config=interp_config)
 
 See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md#interpretability) for the full interpretability reference and artifact catalogue.
 
-#### Anomaly Detection
+#### Kumo-Anomaly
 ```python
 from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 import pandas as pd
@@ -129,17 +129,17 @@ results = perform_anomaly_analysis_with_diffusion(
 - Run [`Kumo-Forecast/sdk/quick_example.py`](Kumo-Forecast/sdk/quick_example.py) for an end-to-end example
 - Fine-tune on your own CSV with [`Kumo-Forecast/examples/finetune_example.py`](Kumo-Forecast/examples/finetune_example.py)
 
-### Anomaly Detection
-- See [`ad_diffusion/README.md`](ad_diffusion/README.md) for detailed usage and configuration
-- Run [`ad_diffusion/examples/quick_example.py`](ad_diffusion/examples/quick_example.py) for an end-to-end example with synthetic or custom datasets
-- Fine-tune on normal windows from your own CSV with [`ad_diffusion/examples/finetune_example.py`](ad_diffusion/examples/finetune_example.py)
+### Kumo-Anomaly
+- See [`Kumo-Anomaly/README.md`](Kumo-Anomaly/README.md) for detailed usage and configuration
+- Run [`Kumo-Anomaly/examples/quick_example.py`](Kumo-Anomaly/examples/quick_example.py) for an end-to-end example with synthetic or custom datasets
+- Fine-tune on normal windows from your own CSV with [`Kumo-Anomaly/examples/finetune_example.py`](Kumo-Anomaly/examples/finetune_example.py)
 
 ## Capabilities
 
 | Module | Status | Description |
 |--------|--------|-------------|
 | `Kumo-Forecast/` | ✅ Available | Time series forecasting with DARR (context-enhanced) mode |
-| `ad_diffusion/` | ✅ Available | Diffusion-based multivariate anomaly detection with adaptive thresholding |
+| `Kumo-Anomaly/` | ✅ Available | Diffusion-based multivariate anomaly detection with adaptive thresholding |
 
 ## Repository Structure
 
@@ -170,9 +170,9 @@ NV-Tesseract/
 │       ├── quick_example.py     # End-to-end usage example
 │       ├── README.md            # SDK parameter and artifact reference
 │       └── tests/               # Test suite and sample datasets
-├── ad_diffusion/                # Multivariate anomaly detection
+├── Kumo-Anomaly/                # Multivariate anomaly detection
 │   ├── pyproject.toml           # Project configuration
-│   ├── README.md                # AD diffusion documentation
+│   ├── README.md                # Kumo-Anomaly documentation
 │   ├── sdk/                     # Main inference functions
 │   │   ├── anomaly_analysis.py  # Main API function
 │   │   ├── inference_ad.py      # Core diffusion inference

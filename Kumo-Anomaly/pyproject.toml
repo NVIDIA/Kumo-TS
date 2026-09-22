@@ -1,7 +1,7 @@
 [project]
-name = "ad-diffusion-oss"
+name = "kumo-anomaly"
 version = "1.0.0"
-description = "Tesseract AD Diffusion Model introduces diffusion modeling, stabilized through curriculum learning, and pairs it with adaptive thresholding methods in a model purpose-built for anomaly detection."
+description = "Kumo-Anomaly Model introduces diffusion modeling, stabilized through curriculum learning, and pairs it with adaptive thresholding methods in a model purpose-built for anomaly detection."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [

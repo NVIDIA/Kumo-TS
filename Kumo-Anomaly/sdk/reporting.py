@@ -129,7 +129,7 @@ def _style_axis(axis, *, is_datetime: bool) -> None:
 
 
 def _add_footer(figure: Figure, page_number: int) -> None:
-    figure.text(0.07, 0.018, "NV-Tesseract anomaly detection", fontsize=7, color="#667085")
+    figure.text(0.07, 0.018, "Kumo-Anomaly", fontsize=7, color="#667085")
     figure.text(0.93, 0.018, f"Page {page_number}", fontsize=7, color="#667085", ha="right")
 
 
@@ -276,7 +276,7 @@ def _create_mae_note_page(*, page_number: int, uses_row_numbers: bool = False) -
         0.0,
         0.83,
         "MAE means mean absolute error. In this report, it measures the average absolute difference "
-        "between the observed values and NV-Tesseract's reconstructed values at each sample.",
+        "between the observed values and Kumo-Anomaly's reconstructed values at each sample.",
         fontsize=11,
         color="#344054",
         va="top",
@@ -319,7 +319,7 @@ def generate_anomaly_detection_report(
     ground_truth_column: str | None = None,
     anomaly_column: str = "Anomaly",
     score_column: str = "MAE",
-    title: str = "Anomaly Detection Report",
+    title: str = "Kumo-Anomaly Report",
     max_features_per_page: int = 4,
     max_report_pages: int = DEFAULT_MAX_REPORT_PAGES,
 ) -> Path:
@@ -388,7 +388,7 @@ def generate_anomaly_detection_report(
     ]
     page_count = 2 + len(feature_groups)
 
-    with PdfPages(destination, metadata={"Title": title, "Subject": "Time-series anomaly detection report"}) as pdf:
+    with PdfPages(destination, metadata={"Title": title, "Subject": "Kumo-Anomaly report"}) as pdf:
         pdf.savefig(
             _create_overview_page(
                 x_values,

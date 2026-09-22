@@ -12,7 +12,7 @@ Redistribution notices under Apache 2.0 §4(d) are in **[`NOTICE`](NOTICE)**. Th
 
 ## Per-file notices
 
-Python modules use SPDX license tags (`SPDX-License-Identifier`) and NVIDIA copyright lines where applicable, consistent with SPDX Specification v2.3, Annex E (short identifiers in source files). Files that incorporate or modify third-party source include the upstream copyright and license notice in addition to NVIDIA attribution — for example [`ad_diffusion/utils/dpm_solver_pytorch.py`](ad_diffusion/utils/dpm_solver_pytorch.py).
+Python modules use SPDX license tags (`SPDX-License-Identifier`) and NVIDIA copyright lines where applicable, consistent with SPDX Specification v2.3, Annex E (short identifiers in source files). Files that incorporate or modify third-party source include the upstream copyright and license notice in addition to NVIDIA attribution — for example [`Kumo-Anomaly/utils/dpm_solver_pytorch.py`](Kumo-Anomaly/utils/dpm_solver_pytorch.py).
 
 ## Third-party source included in this repository
 
@@ -22,11 +22,11 @@ Upstream license texts for **vendored or fork-derived** source are stored under 
 
 - **Upstream:** [LuChengTHU/dpm-solver](https://github.com/LuChengTHU/dpm-solver) — `dpm_solver_pytorch.py`
 - **License:** MIT License — **full text:** [`third_party/dpm-solver/LICENSE`](third_party/dpm-solver/LICENSE)
-- **Modified source in tree:** [`ad_diffusion/utils/dpm_solver_pytorch.py`](ad_diffusion/utils/dpm_solver_pytorch.py) (includes the MIT notice in-file per license terms)
+- **Modified source in tree:** [`Kumo-Anomaly/utils/dpm_solver_pytorch.py`](Kumo-Anomaly/utils/dpm_solver_pytorch.py) (includes the MIT notice in-file per license terms)
 
 ## Runtime dependencies (PyPI)
 
-The packages below are **direct** runtime dependencies declared in [`Kumo-Forecast/pyproject.toml`](Kumo-Forecast/pyproject.toml) and [`ad_diffusion/pyproject.toml`](ad_diffusion/pyproject.toml). Each package is subject to its own license (typically included in the package metadata on PyPI and in installed distributions). SPDX or common names are shown for convenience; refer to the package for authoritative terms.
+The packages below are **direct** runtime dependencies declared in [`Kumo-Forecast/pyproject.toml`](Kumo-Forecast/pyproject.toml) and [`Kumo-Anomaly/pyproject.toml`](Kumo-Anomaly/pyproject.toml). Each package is subject to its own license (typically included in the package metadata on PyPI and in installed distributions). SPDX or common names are shown for convenience; refer to the package for authoritative terms.
 
 ### `Kumo-Forecast/` (`kumo-forecast`)
 
@@ -44,7 +44,7 @@ The packages below are **direct** runtime dependencies declared in [`Kumo-Foreca
 | huggingface_hub | `>=0.17.0` | Apache-2.0 |
 | transformers | `>=4.36.0` | Apache-2.0 |
 
-### `ad_diffusion/` (`ad-diffusion-oss`)
+### `Kumo-Anomaly/` (`kumo-anomaly`)
 
 | Component | Declared requirement | Typical license (verify on PyPI) |
 |-----------|----------------------|----------------------------------|
