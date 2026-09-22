@@ -2665,7 +2665,7 @@ def perform_forecasting(
     try:
         # Create a unique CSV for this invocation. PID-only names collide when
         # multiple requests run concurrently in one service process.
-        temp_test_csv = _create_temp_csv_path("nv_tesseract_test_")
+        temp_test_csv = _create_temp_csv_path("kumo-forecast-test-")
 
         # Save only the necessary columns (timestamp + value columns)
         csv_df = working_df[[cfg.timestamp_column] + columns_to_process].copy()
@@ -2675,7 +2675,7 @@ def perform_forecasting(
 
         # Handle context DataFrame if provided for DARR mode
         if context_df is not None:
-            temp_context_csv = _create_temp_csv_path("nv_tesseract_context_")
+            temp_context_csv = _create_temp_csv_path("kumo-forecast-context-")
 
             # Validate context DataFrame columns
             if cfg.timestamp_column not in context_df.columns:
