@@ -1,6 +1,6 @@
 # Kumo-TS
 
-Kumo-TS is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
+Kumo-TS (formerly NV-Tesseract) is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
 
 ## Overview
 
