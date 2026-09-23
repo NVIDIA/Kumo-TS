@@ -175,7 +175,11 @@ Kumo-Forecast/
 - `numpy>=1.24.0` - Numerical computing
 - `torch>=2.7.0` - Deep learning framework
 - `tqdm>=4.65.0` - Progress bars
-- `huggingface_hub>=0.17.0` - For downloading model weights
+- `huggingface_hub>=0.22.0` - For downloading model weights
+
+- `transformers>=4.36.0` - Transformer utilities
+- `pyyaml>=6.0,<7` - YAML configuration
+- `pytest-xdist>=3.8.0` - Parallel test execution (currently declared as a runtime dependency)
 
 ### Development Dependencies
 - `pytest>=9.0.2` - Testing framework

@@ -1,10 +1,10 @@
 # Third-party notices and licenses
 
-This document satisfies distribution requirements for third-party open source components used **by** NV-Tesseract (dependencies and vendored source). It complements the **project license** for NVIDIA-authored material.
+This document satisfies distribution requirements for third-party open source components used **by** Kumo-TS (dependencies and vendored source). It complements the **project license** for NVIDIA-authored material.
 
 ## NVIDIA-authored project license (Apache License 2.0)
 
-NV-Tesseract source code authored by NVIDIA is offered under the Apache License, Version 2.0. The full license text is in the repository root:
+Kumo-TS source code authored by NVIDIA is offered under the Apache License, Version 2.0. The full license text is in the repository root:
 
 - **[`LICENSE`](LICENSE)**
 
@@ -37,18 +37,17 @@ The packages below are **direct** runtime dependencies declared in [`Kumo-Foreca
 | pandas | `>=2.1.0` | BSD-3-Clause |
 | pytest-xdist | `>=3.8.0` | MIT |
 | numpy | `>=1.24.0` | BSD-3-Clause |
-| torch | `>=2.0.0` | BSD-style (PyTorch) |
-| torchvision | `>=0.15.0` | BSD-style |
-| torchaudio | `>=2.0.0` | BSD-style |
+| torch | `>=2.7.0` | BSD-style (PyTorch) |
 | tqdm | `>=4.65.0` | MPL-2.0 / MIT |
-| huggingface_hub | `>=0.17.0` | Apache-2.0 |
+| huggingface_hub | `>=0.22.0` | Apache-2.0 |
 | transformers | `>=4.36.0` | Apache-2.0 |
+| pyyaml | `>=6.0,<7` | MIT |
 
 ### `Kumo-Anomaly/` (`kumo-anomaly`)
 
 | Component | Declared requirement | Typical license (verify on PyPI) |
 |-----------|----------------------|----------------------------------|
-| torch | `>=1.13.0` | BSD-style (PyTorch) |
+| torch | `>=2.7.0` | BSD-style (PyTorch) |
 | numpy | `>=1.21.0,<2` | BSD-3-Clause |
 | pandas | `>=1.5.0,<3` | BSD-3-Clause |
 | scikit-learn | `>=1.1.0,<2` | BSD-3-Clause |
@@ -57,6 +56,7 @@ The packages below are **direct** runtime dependencies declared in [`Kumo-Foreca
 | tqdm | `>=4.64.0,<5` | MPL-2.0 / MIT |
 | psutil | `>=5.8.0,<6` | BSD-3-Clause |
 | huggingface_hub | `>=0.23.0,<1` | Apache-2.0 |
+| matplotlib | `>=3.8.0,<4` | PSF-based |
 
 **Transitive** dependencies also apply when you install either package; they are licensed under their respective terms (BSD, MIT, Apache-2.0, PSF, MPL, ISC, etc.). To generate a machine-readable inventory of **all** installed packages and detected licenses (for a given virtual environment), you can run:
 

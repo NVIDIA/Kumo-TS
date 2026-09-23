@@ -311,6 +311,9 @@ Core dependencies (see `pyproject.toml` for exact versions):
 - scikit-learn (for PCA and normalization)
 - PyYAML (for configuration files)
 - tqdm (for progress bars)
+- psutil (for system resource information)
+- huggingface_hub (for model downloads)
+- matplotlib (for PDF reports)
 
 Development dependencies:
 - pytest (testing)

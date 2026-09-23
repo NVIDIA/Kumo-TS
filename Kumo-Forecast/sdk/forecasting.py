@@ -3007,7 +3007,7 @@ class NVTesseractForecasting(
     ModelHubMixin,
     library_name="kumo-ts",
     tags=["time-series", "forecasting"],
-    repo_url="https://github.com/NVIDIA/NV-Tesseract",
+    repo_url="https://github.com/NVIDIA/Kumo-TS",
     docs_url="https://huggingface.co/nvidia/Kumo-Forecast",
 ):
     """Kumo-Forecast model with HuggingFace Hub integration.

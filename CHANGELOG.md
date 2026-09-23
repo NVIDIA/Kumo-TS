@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to NV-Tesseract are documented in this file.
+All notable changes to Kumo-TS (formerly NV-Tesseract) are documented in this file.
 
 ## v1.0.0 - 2026-09-21
 
