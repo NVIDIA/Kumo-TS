@@ -1,7 +1,7 @@
 [project]
-name = "tesseract_forecasting"
+name = "kumo-forecast"
 version = "1.0.0"
-description = "Tesseract Forecasting Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting"
+description = "Kumo-Forecast Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -16,6 +16,12 @@ dependencies = [
     "transformers>=4.36.0",
     "pyyaml>=6.0,<7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/NVIDIA/Kumo-TS"
+Repository = "https://github.com/NVIDIA/Kumo-TS"
+Documentation = "https://github.com/NVIDIA/Kumo-TS/blob/dev/Kumo-Forecast/README.md"
+Issues = "https://github.com/NVIDIA/Kumo-TS/issues"
 
 [tool.uv]
 
@@ -36,7 +42,7 @@ include = [
 ]
 exclude = [
     "__pycache__/**",
-    "forecasting/sdk/tests/**",
+    "Kumo-Forecast/sdk/tests/**",
     "*.pyc",
     "*.pyo",
     "*.pyd",
@@ -53,7 +59,7 @@ include = [
 ]
 exclude = [
     "__pycache__/**",
-    "forecasting/sdk/tests/**",
+    "Kumo-Forecast/sdk/tests/**",
     "*.pyc",
     "*.pyo",
     "*.pyd",

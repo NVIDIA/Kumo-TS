@@ -42,7 +42,7 @@ class ADDiffusionConfig:
     report_path: str | Path | None = None
     timestamp_column: str | None = None
     ground_truth_column: str | None = None
-    report_title: str = "Anomaly Detection Report"
+    report_title: str = "Kumo-Anomaly Report"
     report_max_pages: int = 10
 
 
@@ -96,12 +96,12 @@ def perform_anomaly_analysis_with_diffusion(
     sdk_config: ADDiffusionConfig | str | Path | None = None,
 ) -> pd.DataFrame:
     """
-    Perform anomaly analysis using Tesseract AD Diffusion Model.
+    Perform anomaly analysis using Kumo-Anomaly Model.
 
     If ``model_path``/``model_config_path`` do not exist locally, the default weights
     (``final_model.pth`` + ``curriculum_medium.yaml``) are automatically
     downloaded from the Hugging Face repository
-    ``nvidia/nv-tesseract-ad-diffusion``.
+    ``nvidia/Kumo-Anomaly``.
 
     Args:
         df: DataFrame containing numeric data

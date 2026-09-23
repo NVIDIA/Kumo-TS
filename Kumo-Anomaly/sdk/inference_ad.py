@@ -2,21 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Inference function for anomaly detection using NV-Tesseract AD diffusion model
+Inference function for anomaly detection using Kumo-Anomaly model
 
-This script defines functions that perform anomaly detection on datasets using NV-Tesseract diffusion models.
-Note: This package uses a flat import structure - ensure the ad_diffusion directory is in your Python path.
+This script defines functions that perform anomaly detection on datasets using Kumo-Anomaly diffusion models.
+Note: This package uses a flat import structure - ensure the Kumo-Anomaly directory is in your Python path.
 
 Usage:
 import sys, os
-sys.path.append('/path/to/ad_diffusion')  # Adjust path as needed
+sys.path.append('/path/to/Kumo-Anomaly')  # Adjust path as needed
 from sdk.inference_ad import inference_ad_tesseract2
 
 # Explicit paths
 results = inference_ad_tesseract2(data, model_path, config_path, nsample=30)
 
 # Or let the SDK auto-download weights from Hugging Face
-# (nvidia/nv-tesseract-ad-diffusion -> final_model.pth + curriculum_medium.yaml)
+# (nvidia/Kumo-Anomaly -> final_model.pth + curriculum_medium.yaml)
 results = inference_ad_tesseract2(data, nsample=30)
 
 # Pre-fetch weights manually (e.g. to pick a custom cache directory)
@@ -98,8 +98,8 @@ elif torch.backends.mps.is_available():
 else:
     DEVICE = "cpu"
 
-# Default Hugging Face repository and asset names for the AD Diffusion model
-HF_REPO_ID = "nvidia/nv-tesseract-ad-diffusion"
+# Default Hugging Face repository and asset names for the Kumo-Anomaly model
+HF_REPO_ID = "nvidia/Kumo-Anomaly"
 DEFAULT_MODEL_FILENAME = "final_model.pth"
 DEFAULT_CONFIG_FILENAME = "curriculum_medium.yaml"
 
@@ -981,12 +981,12 @@ def download_model_weights(
     token: str | bool | None = None,
 ) -> tuple[str, str]:
     """
-    Auto-download AD Diffusion model weights from Hugging Face if they don't exist locally.
+    Auto-download Kumo-Anomaly model weights from Hugging Face if they don't exist locally.
 
     Args:
         model_path: Local path for the model checkpoint (default: final_model.pth)
         config_path: Local path for the model config YAML (default: curriculum_medium.yaml)
-        repo_id: Hugging Face repository ID (default: nvidia/nv-tesseract-ad-diffusion)
+        repo_id: Hugging Face repository ID (default: nvidia/Kumo-Anomaly)
         force_download: Force re-download even if files exist
 
     Returns:
@@ -1017,7 +1017,7 @@ def download_model_weights(
             "Install it with: `uv add huggingface_hub` or `pip install huggingface_hub`."
         )
 
-    logger.info("Downloading AD Diffusion weights from Hugging Face (%s)...", repo_id)
+    logger.info("Downloading Kumo-Anomaly weights from Hugging Face (%s)...", repo_id)
 
     # Download each file to its own parent directory so returned paths always exist
     try:
@@ -1034,7 +1034,7 @@ def download_model_weights(
                     cache_dir=str(cache_dir) if cache_dir else None,
                     local_files_only=local_files_only,
                     token=token,
-                    library_name="nv-tesseract",
+                    library_name="kumo-ts",
                 )
                 # snapshot_download() can return normally even when the file wasn't
                 # actually fetched (e.g. a 429 during the HEAD/metadata call causes
@@ -1110,7 +1110,7 @@ def get_model_target_dim(model_path: str | None = None, config_path: str = "") -
     Extract target_dim from model checkpoint or config without loading the full model.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from the Hugging Face repository ``nvidia/nv-tesseract-ad-diffusion``.
+    downloaded from the Hugging Face repository ``nvidia/Kumo-Anomaly``.
 
     Args:
         model_path: Path to the model checkpoint. If ``None`` or missing locally,
@@ -1141,10 +1141,10 @@ def inference_ad_tesseract2(
     dpm_steps=20,
 ):
     """
-    Perform anomaly detection inference using NV-Tesseract AD diffusion model.
+    Perform anomaly detection inference using Kumo-Anomaly model.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from ``nvidia/nv-tesseract-ad-diffusion`` on Hugging Face Hub.
+    downloaded from ``nvidia/Kumo-Anomaly`` on Hugging Face Hub.
 
     Args:
         data: DataFrame with pre-cleaned numeric data. Users should remove any unwanted
@@ -1237,7 +1237,7 @@ def inference_ad_tesseract2_mp(
     Multi-GPU inference using subprocess workers and shared-memory windows.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from ``nvidia/nv-tesseract-ad-diffusion`` on Hugging Face Hub.
+    downloaded from ``nvidia/Kumo-Anomaly`` on Hugging Face Hub.
 
     Args:
         data: DataFrame with pre-cleaned numeric data.
@@ -1408,16 +1408,16 @@ def inference_ad_tesseract2_mp(
 
 class NVTesseractADDiffusion(
     ModelHubMixin,
-    library_name="nv-tesseract",
+    library_name="kumo-ts",
     tags=["time-series", "anomaly-detection"],
-    repo_url="https://github.com/NVIDIA/NV-Tesseract",
-    docs_url="https://huggingface.co/nvidia/nv-tesseract-ad-diffusion",
+    repo_url="https://github.com/NVIDIA/Kumo-TS",
+    docs_url="https://huggingface.co/nvidia/Kumo-Anomaly",
 ):
-    """NV-Tesseract AD Diffusion anomaly detection model with HuggingFace Hub integration.
+    """Kumo-Anomaly anomaly detection model with HuggingFace Hub integration.
 
     Example::
 
-        model = NVTesseractADDiffusion.from_pretrained("nvidia/nv-tesseract-ad-diffusion")
+        model = NVTesseractADDiffusion.from_pretrained("nvidia/Kumo-Anomaly")
         results = model.detect(data, nsample=30)
 
         # Save weights locally or push to Hub

@@ -235,6 +235,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Upstream project: https://github.com/LuChengTHU/dpm-solver
-Included in this repository as: ad_diffusion/utils/dpm_solver_pytorch.py
+Included in this repository as: Kumo-Anomaly/utils/dpm_solver_pytorch.py
 (full license copy also at: third_party/dpm-solver/LICENSE)
 -------------------------------------------------------------------------------

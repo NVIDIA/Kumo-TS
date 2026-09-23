@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Fine-tune NV-Tesseract AD Diffusion on normal windows from a user CSV.
+Fine-tune Kumo-Anomaly on normal windows from a user CSV.
 
-Run from the ad_diffusion directory:
+Run from the Kumo-Anomaly directory:
     uv run python examples/finetune_example.py \
         --csv /path/to/normal_training_data.csv \
         --timestamp-col timestamp \
@@ -370,7 +370,7 @@ def _run_config_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Fine-tune NV-Tesseract AD Diffusion on a CSV dataset.")
+    parser = argparse.ArgumentParser(description="Fine-tune Kumo-Anomaly on a CSV dataset.")
     parser.add_argument(
         "--run-config",
         default=None,

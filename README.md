@@ -1,37 +1,37 @@
-# NV-Tesseract
+# Kumo-TS
 
-NVIDIA Tesseract is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
+Kumo-TS is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
 
 ## Overview
 
-- **Forecasting**: DataFrame-first API for multivariate time series forecasting with DARR (context-enhanced) mode, built on a vendored backbone.
-- **Anomaly Detection**: Diffusion-based multivariate anomaly detection using novel proprietary algorithms.
+- **Kumo-Forecast**: DataFrame-first API for multivariate time series forecasting with DARR (context-enhanced) mode, built on a vendored backbone.
+- **Kumo-Anomaly**: Diffusion-based multivariate anomaly detection using novel proprietary algorithms.
 
 ## Getting Started
 
 ### Installation
 
-Clone the repo and install the desired package:
+Clone the repo and install the desired package. Each package has its own environment and lockfile:
 
-#### Forecasting
+#### Kumo-Forecast
 ```bash
-git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/forecasting
-uv sync --python 3.12   # or: pip install -e .
+git clone https://github.com/NVIDIA/Kumo-TS.git
+cd Kumo-TS/Kumo-Forecast
+uv sync --frozen --python 3.12   # or: pip install -e .
 ```
 
-#### Anomaly Detection
+#### Kumo-Anomaly
 ```bash
-git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/ad_diffusion
-uv sync --python 3.12   # or: pip install -e .
+git clone https://github.com/NVIDIA/Kumo-TS.git
+cd Kumo-TS/Kumo-Anomaly
+uv sync --frozen --python 3.12   # or: pip install -e .
 ```
 
-Use the same interpreter/venv when you run the examples below.
+Run each example from its package directory using `uv run python`, or activate that package’s `.venv`. Install the packages in separate environments because both expose a top-level `sdk` module.
 
 ### Quick Start
 
-#### Forecasting
+#### Kumo-Forecast
 ```python
 from sdk.forecasting import ForecastingConfig, perform_forecasting
 import pandas as pd
@@ -53,14 +53,14 @@ forecasts = perform_forecasting(df=df, config=config)
 
 Forecasting options can also be moved into a YAML file and passed as the typed
 configuration source — a fully commented template is packaged at
-`forecasting/sdk/forecasting_inference_config.yaml`:
+`Kumo-Forecast/sdk/forecasting_inference_config.yaml`:
 
 ```python
 from sdk.forecasting import perform_forecasting
 
 results = perform_forecasting(
     df=df,
-    config="forecasting/sdk/forecasting_inference_config.yaml",
+    config="sdk/forecasting_inference_config.yaml",
 )
 ```
 
@@ -97,9 +97,9 @@ results = perform_forecasting(df=df, config=interp_config)
 # Bundle written under interpretability_output/run_<UTC-timestamp>/
 ```
 
-See [`forecasting/README.md`](forecasting/README.md#interpretability) for the full interpretability reference and artifact catalogue.
+See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md#interpretability) for the full interpretability reference and artifact catalogue.
 
-#### Anomaly Detection
+#### Kumo-Anomaly
 ```python
 from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 import pandas as pd
@@ -116,35 +116,37 @@ results = perform_anomaly_analysis_with_diffusion(
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12+ for the installation commands above (Kumo-Forecast declares Python 3.10+; Kumo-Anomaly requires Python 3.12+)
 - PyTorch 2.7+
 - pandas, numpy
-- Pretrained model weights (auto-downloaded from Hugging Face)
+- Pretrained model weights (auto-downloaded from [Kumo-Forecast](https://huggingface.co/nvidia/Kumo-Forecast) or [Kumo-Anomaly](https://huggingface.co/nvidia/Kumo-Anomaly) on Hugging Face)
 - GPU recommended (CUDA or Apple MPS); falls back to CPU automatically
+
+Exact runtime requirements are declared in each package’s `pyproject.toml`; `uv.lock` records resolved versions for reproducible installation. See [third-party dependencies](THIRD_PARTY_LICENSES.md#runtime-dependencies-pypi) for the dependency inventory.
 
 ## Usage
 
-### Forecasting
-- See [`forecasting/README.md`](forecasting/README.md) for full API reference and examples
-- Run [`forecasting/sdk/quick_example.py`](forecasting/sdk/quick_example.py) for an end-to-end example
-- Fine-tune on your own CSV with [`forecasting/examples/finetune_example.py`](forecasting/examples/finetune_example.py)
+### Kumo-Forecast
+- See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md) for full API reference and examples
+- Run [`Kumo-Forecast/sdk/quick_example.py`](Kumo-Forecast/sdk/quick_example.py) for an end-to-end example
+- Fine-tune on your own CSV with [`Kumo-Forecast/examples/finetune_example.py`](Kumo-Forecast/examples/finetune_example.py)
 
-### Anomaly Detection
-- See [`ad_diffusion/README.md`](ad_diffusion/README.md) for detailed usage and configuration
-- Run [`ad_diffusion/examples/quick_example.py`](ad_diffusion/examples/quick_example.py) for an end-to-end example with synthetic or custom datasets
-- Fine-tune on normal windows from your own CSV with [`ad_diffusion/examples/finetune_example.py`](ad_diffusion/examples/finetune_example.py)
+### Kumo-Anomaly
+- See [`Kumo-Anomaly/README.md`](Kumo-Anomaly/README.md) for detailed usage and configuration
+- Run [`Kumo-Anomaly/examples/quick_example.py`](Kumo-Anomaly/examples/quick_example.py) for an end-to-end example with synthetic or custom datasets
+- Fine-tune on normal windows from your own CSV with [`Kumo-Anomaly/examples/finetune_example.py`](Kumo-Anomaly/examples/finetune_example.py)
 
 ## Capabilities
 
 | Module | Status | Description |
 |--------|--------|-------------|
-| `forecasting/` | ✅ Available | Time series forecasting with DARR (context-enhanced) mode |
-| `ad_diffusion/` | ✅ Available | Diffusion-based multivariate anomaly detection with adaptive thresholding |
+| `Kumo-Forecast/` | ✅ Available | Time series forecasting with DARR (context-enhanced) mode |
+| `Kumo-Anomaly/` | ✅ Available | Diffusion-based multivariate anomaly detection with adaptive thresholding |
 
 ## Repository Structure
 
 ```
-NV-Tesseract/
+Kumo-TS/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # CI pipeline
@@ -153,7 +155,7 @@ NV-Tesseract/
 ├── third_party/                 # Upstream LICENSE files for vendored/in-tree third-party code
 │   ├── README.md
 │   └── dpm-solver/
-├── forecasting/                 # Time series forecasting
+├── Kumo-Forecast/                 # Time series forecasting
 │   ├── pyproject.toml           # Project configuration
 │   ├── README.md                # Forecasting documentation
 │   ├── backbone.py              # Vendored transformer backbone
@@ -170,9 +172,9 @@ NV-Tesseract/
 │       ├── quick_example.py     # End-to-end usage example
 │       ├── README.md            # SDK parameter and artifact reference
 │       └── tests/               # Test suite and sample datasets
-├── ad_diffusion/                # Multivariate anomaly detection
+├── Kumo-Anomaly/                # Multivariate anomaly detection
 │   ├── pyproject.toml           # Project configuration
-│   ├── README.md                # AD diffusion documentation
+│   ├── README.md                # Kumo-Anomaly documentation
 │   ├── sdk/                     # Main inference functions
 │   │   ├── anomaly_analysis.py  # Main API function
 │   │   ├── inference_ad.py      # Core diffusion inference
@@ -208,7 +210,7 @@ NV-Tesseract/
 
 ## Support
 
-- How to get help: [GitHub Issues](https://github.com/NVIDIA/NV-Tesseract/issues)
+- How to get help: [GitHub Issues](https://github.com/NVIDIA/Kumo-TS/issues)
 
 ## License
 
