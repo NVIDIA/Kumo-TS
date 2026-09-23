@@ -17,6 +17,12 @@ dependencies = [
     "pyyaml>=6.0,<7",
 ]
 
+[project.urls]
+Homepage = "https://github.com/NVIDIA/Kumo-TS"
+Repository = "https://github.com/NVIDIA/Kumo-TS"
+Documentation = "https://github.com/NVIDIA/Kumo-TS/blob/dev/Kumo-Forecast/README.md"
+Issues = "https://github.com/NVIDIA/Kumo-TS/issues"
+
 [tool.uv]
 
 [[tool.uv.index]]

@@ -1,37 +1,37 @@
-# NV-Tesseract
+# Kumo-TS
 
-NVIDIA Tesseract is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
+Kumo-TS is an open-source time series analysis library covering forecasting and anomaly detection. The forecasting module builds on a pretrained transformer backbone; anomaly detection uses diffusion-based models powered by NVIDIA's proprietary algorithms.
 
 ## Overview
 
-- **Forecasting**: DataFrame-first API for multivariate time series forecasting with DARR (context-enhanced) mode, built on a vendored backbone.
+- **Kumo-Forecast**: DataFrame-first API for multivariate time series forecasting with DARR (context-enhanced) mode, built on a vendored backbone.
 - **Kumo-Anomaly**: Diffusion-based multivariate anomaly detection using novel proprietary algorithms.
 
 ## Getting Started
 
 ### Installation
 
-Clone the repo and install the desired package:
+Clone the repo and install the desired package. Each package has its own environment and lockfile:
 
-#### Forecasting
+#### Kumo-Forecast
 ```bash
-git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/Kumo-Forecast
-uv sync --python 3.12   # or: pip install -e .
+git clone https://github.com/NVIDIA/Kumo-TS.git
+cd Kumo-TS/Kumo-Forecast
+uv sync --frozen --python 3.12   # or: pip install -e .
 ```
 
 #### Kumo-Anomaly
 ```bash
-git clone https://github.com/NVIDIA/NV-Tesseract.git
-cd NV-Tesseract/Kumo-Anomaly
-uv sync --python 3.12   # or: pip install -e .
+git clone https://github.com/NVIDIA/Kumo-TS.git
+cd Kumo-TS/Kumo-Anomaly
+uv sync --frozen --python 3.12   # or: pip install -e .
 ```
 
-Use the same interpreter/venv when you run the examples below.
+Run each example from its package directory using `uv run python`, or activate that package’s `.venv`. Install the packages in separate environments because both expose a top-level `sdk` module.
 
 ### Quick Start
 
-#### Forecasting
+#### Kumo-Forecast
 ```python
 from sdk.forecasting import ForecastingConfig, perform_forecasting
 import pandas as pd
@@ -60,7 +60,7 @@ from sdk.forecasting import perform_forecasting
 
 results = perform_forecasting(
     df=df,
-    config="Kumo-Forecast/sdk/forecasting_inference_config.yaml",
+    config="sdk/forecasting_inference_config.yaml",
 )
 ```
 
@@ -116,15 +116,17 @@ results = perform_anomaly_analysis_with_diffusion(
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12+ for the installation commands above (Kumo-Forecast declares Python 3.10+; Kumo-Anomaly requires Python 3.12+)
 - PyTorch 2.7+
 - pandas, numpy
-- Pretrained model weights (auto-downloaded from Hugging Face)
+- Pretrained model weights (auto-downloaded from [Kumo-Forecast](https://huggingface.co/nvidia/Kumo-Forecast) or [Kumo-Anomaly](https://huggingface.co/nvidia/Kumo-Anomaly) on Hugging Face)
 - GPU recommended (CUDA or Apple MPS); falls back to CPU automatically
+
+Exact runtime requirements are declared in each package’s `pyproject.toml`; `uv.lock` records resolved versions for reproducible installation. See [third-party dependencies](THIRD_PARTY_LICENSES.md#runtime-dependencies-pypi) for the dependency inventory.
 
 ## Usage
 
-### Forecasting
+### Kumo-Forecast
 - See [`Kumo-Forecast/README.md`](Kumo-Forecast/README.md) for full API reference and examples
 - Run [`Kumo-Forecast/sdk/quick_example.py`](Kumo-Forecast/sdk/quick_example.py) for an end-to-end example
 - Fine-tune on your own CSV with [`Kumo-Forecast/examples/finetune_example.py`](Kumo-Forecast/examples/finetune_example.py)
@@ -144,7 +146,7 @@ results = perform_anomaly_analysis_with_diffusion(
 ## Repository Structure
 
 ```
-NV-Tesseract/
+Kumo-TS/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # CI pipeline
@@ -208,7 +210,7 @@ NV-Tesseract/
 
 ## Support
 
-- How to get help: [GitHub Issues](https://github.com/NVIDIA/NV-Tesseract/issues)
+- How to get help: [GitHub Issues](https://github.com/NVIDIA/Kumo-TS/issues)
 
 ## License
 

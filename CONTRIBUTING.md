@@ -1,10 +1,10 @@
-# Contributing to NV-Tesseract
+# Contributing to Kumo-TS
 
 Thank you for your interest in this project.
 
 ## Issues
 
-We track bugs, feature requests, and questions in **[GitHub Issues](https://github.com/NVIDIA/NV-Tesseract/issues)**.
+We track bugs, feature requests, and questions in **[GitHub Issues](https://github.com/NVIDIA/Kumo-TS/issues)**.
 
 1. **Search first** — Check open and recently closed issues for duplicates before opening a new one.
 2. **Security** — Do **not** file security vulnerabilities as public issues. Follow [`SECURITY.md`](SECURITY.md) instead.
