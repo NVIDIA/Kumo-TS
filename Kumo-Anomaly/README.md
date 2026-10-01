@@ -47,6 +47,7 @@ results = perform_anomaly_analysis_with_diffusion(
     # model_path="path/to/your/model.pth",         # optional; defaults to final_model.pth
     # model_config_path="path/to/config.yaml",     # optional; defaults to curriculum_medium.yaml
     nsample=15,
+    feature_embedding_mode="shared_mean_norm_matched_zero_pad",  # or "positional"
     preprocess_model_dir="path/to/preprocessing/models",  # optional
     explain=True,
     explanation_top_k=3,
@@ -55,6 +56,11 @@ results = perform_anomaly_analysis_with_diffusion(
 # Results contain original data plus anomaly detection results
 print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
+
+`feature_embedding_mode` defaults to `shared_mean_norm_matched_zero_pad`, which
+shares a norm-matched checkpoint embedding across active features and zeros only
+SDK-identified padding positions. Use `positional` to retain the checkpoint's
+original position-specific feature embeddings.
 
 Reporting settings (`report_path`, etc.) live on `ADDiffusionConfig`, which can
 also be loaded from a YAML file — a fully commented template is available at
