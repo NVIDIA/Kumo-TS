@@ -1064,6 +1064,50 @@ wheels = [
 ]
 
 [[package]]
+name = "kumo-forecast"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "datasetsforecast" },
+    { name = "huggingface-hub" },
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pytest-xdist" },
+    { name = "pyyaml" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasetsforecast", specifier = ">=1.0.0" },
+    { name = "huggingface-hub", specifier = ">=0.22.0" },
+    { name = "joblib", specifier = ">=1.5.2" },
+    { name = "numpy", specifier = ">=1.24.0" },
+    { name = "pandas", specifier = ">=2.1.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "torch", specifier = ">=2.7.0" },
+    { name = "tqdm", specifier = ">=4.65.0" },
+    { name = "transformers", specifier = ">=4.36.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.8.0" },
+]
+
+
+[[package]]
 name = "markdown-it-py"
 version = "4.0.0"
 source = { registry = "https://pypi.org/simple/" }
@@ -2533,46 +2577,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
 ]
 
-[[package]]
-name = "tesseract-forecasting"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "datasetsforecast" },
-    { name = "huggingface-hub" },
-    { name = "joblib" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pytest-xdist" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "transformers" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "datasetsforecast", specifier = ">=1.0.0" },
-    { name = "huggingface-hub", specifier = ">=0.17.0" },
-    { name = "joblib", specifier = ">=1.5.2" },
-    { name = "numpy", specifier = ">=1.24.0" },
-    { name = "pandas", specifier = ">=2.1.0" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "torch", specifier = ">=2.7.0" },
-    { name = "tqdm", specifier = ">=4.65.0" },
-    { name = "transformers", specifier = ">=4.36.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.8.0" },
-]
 
 [[package]]
 name = "threadpoolctl"

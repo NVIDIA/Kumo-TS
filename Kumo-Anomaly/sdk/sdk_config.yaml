@@ -17,7 +17,7 @@ sdk:
   # names are auto-detected when report_path is set and this is null.
   ground_truth_column: null
   # Title shown on the generated PDF report.
-  report_title: Anomaly Detection Report
+  report_title: Kumo-Anomaly Report
   # Optional destination for the full explainability CSV; written beside the
   # PDF when null.
   report_explanation_csv_path: null

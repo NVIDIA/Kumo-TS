@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "ad-diffusion-oss"
+name = "kumo-anomaly"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

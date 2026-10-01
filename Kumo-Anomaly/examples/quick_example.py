@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Quick Example: Anomaly Detection with AD Diffusion
+Quick Example: Anomaly Detection with Kumo-Anomaly
 
 This example demonstrates how to use the perform_anomaly_analysis_with_diffusion
 function for time series anomaly detection using a synthetic dataset.
@@ -11,10 +11,10 @@ function for time series anomaly detection using a synthetic dataset.
 Requirements:
 - Python 3.12+
 - All dependencies installed (run: uv sync)
-- Optional: Pre-trained NV-Tesseract AD diffusion model
+- Optional: Pre-trained Kumo-Anomaly model
 
 Usage:
-    # From the ad_diffusion directory (weights auto-download from HF on first run):
+    # From the Kumo-Anomaly directory (weights auto-download from HF on first run):
     uv run python examples/quick_example.py
 
     # Use your own dataset:
@@ -174,7 +174,7 @@ def run_anomaly_detection_example(
 
     Args:
         model_path: Path to pre-trained model. If ``None`` or missing, the default
-            weights are auto-downloaded from ``nvidia/nv-tesseract-ad-diffusion``.
+            weights are auto-downloaded from ``nvidia/Kumo-Anomaly``.
         config_path: Path to the model config. If ``None`` or missing, the default
             ``curriculum_medium.yaml`` is fetched alongside the checkpoint.
         skip_download: If True, do not attempt to auto-download weights. The example
@@ -183,7 +183,7 @@ def run_anomaly_detection_example(
             will be created and used for the example.
     """
     try:
-        logger.info("AD Diffusion - Quick Example")
+        logger.info("Kumo-Anomaly - Quick Example")
         logger.info("=" * 50)
 
         # Step 0: Ensure model weights are available (auto-download from HF if missing).
@@ -259,7 +259,7 @@ def run_anomaly_detection_example(
                 )
 
                 # Step 5: Display results
-                logger.info("Anomaly Detection Results:")
+                logger.info("Kumo-Anomaly Results:")
                 logger.info("-" * 30)
 
                 n_anomalies = results["Anomaly"].sum()
@@ -323,7 +323,7 @@ def run_anomaly_detection_example(
                     logger.info("No ground truth available for custom dataset - skipping evaluation metrics")
 
                 # Step 7: Save results
-                output_path = Path(__file__).parent / "datasets" / "anomaly_results.csv"
+                output_path = Path(__file__).parent / "datasets" / "kumo-anomaly-results.csv"
                 results_with_timestamp = results.copy()
                 if "timestamp" in df.columns:
                     results_with_timestamp["timestamp"] = df["timestamp"]
@@ -333,13 +333,11 @@ def run_anomaly_detection_example(
             except Exception as e:
                 logger.error(f"Anomaly detection failed: {e}")
                 logger.info("This might be due to missing model file or incompatible data size.")
-                logger.info(
-                    "Please ensure you have a trained NV-Tesseract AD diffusion model and sufficient data samples."
-                )
+                logger.info("Please ensure you have a trained Kumo-Anomaly model and sufficient data samples.")
 
         else:
             logger.warning("No model weights found locally and auto-download was skipped/failed.")
-            logger.info("To run with the pretrained Tesseract AD Diffusion model:")
+            logger.info("To run with the pretrained Kumo-Anomaly model:")
             logger.info(f"  python quick_example.py                       # auto-download from {HF_REPO_ID}")
             logger.info("  python quick_example.py --download-weights     # pre-download only")
             logger.info("  python quick_example.py --model-path /path/to/final_model.pth")
@@ -358,13 +356,13 @@ def run_anomaly_detection_example(
 
 def main():
     """Main entry point with command line argument parsing."""
-    parser = argparse.ArgumentParser(description="AD Diffusion Quick Example")
+    parser = argparse.ArgumentParser(description="Kumo-Anomaly Quick Example")
     parser.add_argument(
         "--model-path",
         type=str,
         default=None,
         help=(
-            "Path to the NV-Tesseract diffusion model checkpoint (.pth file). "
+            "Path to the Kumo-Anomaly diffusion model checkpoint (.pth file). "
             f"Defaults to '{DEFAULT_MODEL_FILENAME}' (auto-downloaded from {HF_REPO_ID})."
         ),
     )
@@ -414,7 +412,7 @@ def main():
     elif args.download_weights:
         model_file = args.model_path or DEFAULT_MODEL_FILENAME
         config_file = args.config_path or DEFAULT_CONFIG_FILENAME
-        logger.info(f"Downloading default AD Diffusion weights from {HF_REPO_ID}...")
+        logger.info(f"Downloading default Kumo-Anomaly weights from {HF_REPO_ID}...")
         model_file, config_file = download_model_weights(
             model_path=model_file,
             config_path=config_file,

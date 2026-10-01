@@ -1,4 +1,4 @@
-# Tesseract Forecasting SDK
+# Kumo-Forecast SDK
 
 Programmatic entry point for running `perform_forecasting()` on pandas DataFrames. Supports multivariate forecasting, context-enhanced (DARR) predictions, and model-agnostic interpretability with horizon-specific lag attributions.
 
@@ -16,7 +16,7 @@ Programmatic entry point for running `perform_forecasting()` on pandas DataFrame
 
 ## Installation
 
-The SDK is shipped with `tesseract_forecasting`. Install (or update) the package and dependencies using:
+The SDK is shipped with `kumo-forecast`. Install (or update) the package and dependencies using:
 
 ```bash
 uv sync

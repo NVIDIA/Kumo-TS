@@ -6,4 +6,4 @@ Runtime dependencies installed via PyPI are **not** copied here; their licenses 
 
 | Subdirectory | Upstream project | Used in repo |
 |--------------|------------------|--------------|
-| [`dpm-solver/`](dpm-solver/) | [LuChengTHU/dpm-solver](https://github.com/LuChengTHU/dpm-solver) | [`ad_diffusion/utils/dpm_solver_pytorch.py`](../ad_diffusion/utils/dpm_solver_pytorch.py) |
+| [`dpm-solver/`](dpm-solver/) | [LuChengTHU/dpm-solver](https://github.com/LuChengTHU/dpm-solver) | [`Kumo-Anomaly/utils/dpm_solver_pytorch.py`](../Kumo-Anomaly/utils/dpm_solver_pytorch.py) |
