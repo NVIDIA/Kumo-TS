@@ -61,6 +61,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+
 from channel_flow import _embed_windows_batched
 from interpretability import (
     Array,

@@ -2,6 +2,25 @@
 
 All notable changes to Kumo-TS (formerly NV-Tesseract) are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Missingness-aware forecasting in the forecasting SDK: `ForecastingConfig(handle_missingness=True)` routes inputs with
+  NaN gaps to a missingness-aware model (`impute/`, Backbone-LF+ CRS) that reads per-channel/per-timestep observation
+  masks instead of zero-filling. Options: `impute_ckpt`, `impute_normalization` (`history` / `provided` / `checkpoint`),
+  `impute_history_rows`, `impute_scaler_stats`, `impute_source_dataset`, `impute_channel_alignment` (`name` / `positional`),
+  plus `fit_impute_scaler_stats`.
+- The released missingness checkpoint is loaded from `hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0` (any
+  `hf://org/repo[@revision][/subfolder]` reference or local folder is accepted).
+- `examples/missingness_quickstart.py` and `sdk/tests/test_imputation.py` (real-checkpoint tests opt-in via
+  `KUMO_IMPUTE_CKPT` / `KUMO_IMPUTE_HF` / `KUMO_IMPUTE_CSV`).
+
+### Changed
+
+- The NULL zero-fill warning now points to `handle_missingness=True`; `clear_model_cache()` also clears cached
+  missingness models.
+
 ## v0.1.0 - 2026-07-07
 
 First public release of NV-Tesseract.

@@ -37,6 +37,7 @@ except ImportError:
 
 # Clean absolute imports - package is installed in editable mode
 from backbone.utils.utils import control_randomness
+
 from channel_stability import (
     PerChannelEmbeddingStabilityReport,
     compute_per_channel_embedding_stability,
@@ -118,6 +119,26 @@ class ForecastingConfig:
     integrated_gradients_internal_batch_size: int | None = None
     integrated_gradients_reduce: str = "l2"
     integrated_gradients_grad_through_norm: bool = True
+    # Missingness-aware forecasting: when True, NULLs are handled by the missingness-aware
+    # model (masks + missing_rate, see sdk/imputation.py) instead of being zero-filled.
+    handle_missingness: bool = False
+    # Missingness checkpoint: local .pt / folder, or hf://org/repo[@rev][/subfolder].
+    # None uses the released checkpoint hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0.
+    impute_ckpt: str | None = None
+    # Reference scaler for the missingness path: "history" (fit on observed input rows),
+    # "checkpoint" (training standardizer saved with the checkpoint), or
+    # "provided" (impute_scaler_stats).
+    impute_normalization: str = "history"
+    # Source dataset whose saved standardizer to use with impute_normalization="checkpoint".
+    impute_source_dataset: str | None = None
+    # "name": align channels to the checkpoint's training schema by column name;
+    # "positional": feed channels in input order.
+    impute_channel_alignment: str = "name"
+    # "history" normalization only: fit the scaler on the last N input rows (None = all rows).
+    impute_history_rows: int | None = None
+    # "provided" normalization: {"mean": {column: value}, "std": {column: value}}
+    # (see sdk.fit_impute_scaler_stats).
+    impute_scaler_stats: dict[str, dict[str, float]] | None = None
 
 
 _FORECASTING_CONFIG_FIELDS = frozenset(field.name for field in fields(ForecastingConfig))
@@ -297,6 +318,9 @@ def _load_cached_model(
 
 def clear_model_cache():
     _MODEL_CACHE.clear()
+    from .imputation import clear_impute_model_cache
+
+    clear_impute_model_cache()
     logger.info("Model cache cleared")
 
 
@@ -2578,6 +2602,16 @@ def perform_forecasting(
     if df is None or df.empty:
         raise ValueError("Input DataFrame is required and cannot be empty")
 
+    # Missingness-aware path: route to the missingness model before any zero-filling.
+    if cfg.handle_missingness:
+        if context_df is not None:
+            raise ValueError("DARR (context_df) is not supported with handle_missingness=True yet")
+        if cfg.interpretability:
+            raise ValueError("interpretability is not supported with handle_missingness=True yet")
+        from .imputation import perform_missingness_aware_forecasting
+
+        return perform_missingness_aware_forecasting(df, cfg, device)
+
     # Validate minimum rows
     if len(df) < cfg.seq_len:
         raise ValueError(f"DataFrame has {len(df)} rows but seq_len requires at least {cfg.seq_len} rows")
@@ -2607,7 +2641,11 @@ def perform_forecasting(
 
     # Handle NULL values in target column - fill with zeros
     if working_df[cfg.target_column].isnull().any():
-        logger.warning("Found NULL values in '%s', filling with zeros", cfg.target_column)
+        logger.warning(
+            "Found NULL values in '%s', filling with zeros "
+            "(set handle_missingness=True to use the missingness-aware model)",
+            cfg.target_column,
+        )
         working_df[cfg.target_column] = working_df[cfg.target_column].fillna(0)
 
     # Automatically detect all numeric columns to use as features
@@ -2632,7 +2670,11 @@ def perform_forecasting(
     # Fill NaN values with zeros for all numeric columns
     for col in columns_to_process:
         if working_df[col].isnull().any():
-            logger.warning("Found NULL values in '%s', filling with zeros", col)
+            logger.warning(
+                "Found NULL values in '%s', filling with zeros "
+                "(set handle_missingness=True to use the missingness-aware model)",
+                col,
+            )
             working_df[col] = working_df[col].fillna(0)
 
     # Set random seed

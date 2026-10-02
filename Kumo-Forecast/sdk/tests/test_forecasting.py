@@ -14,8 +14,9 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-import sdk
 import torch
+
+import sdk
 from sdk import forecasting
 
 
