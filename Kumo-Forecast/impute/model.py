@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # Base config and modules (non-CRS)
 # =============================================================================
 
+
 class PLUSConfig(NamespaceWithDefaults):
     """Configuration for Backbone-LF+ model with flags for all four modules."""
 
@@ -96,12 +97,8 @@ class MissingnessAdaptiveRevIN(RevIN):
         # when no history is available.  _global_stdev_initialized tracks whether
         # the EMA has been seeded yet (False on a fresh model; True after the
         # first training batch or after loading a trained checkpoint).
-        self.register_buffer(
-            "_global_stdev", torch.ones(1, num_features, 1), persistent=True
-        )
-        self.register_buffer(
-            "_global_stdev_initialized", torch.tensor(False), persistent=True
-        )
+        self.register_buffer("_global_stdev", torch.ones(1, num_features, 1), persistent=True)
+        self.register_buffer("_global_stdev_initialized", torch.tensor(False), persistent=True)
 
     def set_missing_rate(self, missing_rate: float):
         if missing_rate <= self.threshold:
@@ -128,10 +125,9 @@ class MissingnessAdaptiveRevIN(RevIN):
                     self._global_stdev_initialized.fill_(True)
                 else:
                     self._global_stdev.copy_(
-                        (
-                            (1.0 - self._ema_alpha) * self._global_stdev
-                            + self._ema_alpha * batch_stdev
-                        ).clamp(min=1e-2)  # prevent near-zero EMA stdev
+                        ((1.0 - self._ema_alpha) * self._global_stdev + self._ema_alpha * batch_stdev).clamp(
+                            min=1e-2
+                        )  # prevent near-zero EMA stdev
                     )
         if self._shrinkage > 0.0:
             aa = self._shrinkage
@@ -464,7 +460,7 @@ class BackboneLFPlus(BackboneLF):
 
         x_norm = self.normalizer(x=x_enc, mask=input_mask, mode="norm")
         # Snapshot main-view statistics before anything else can overwrite them.
-        _revin_mean  = self.normalizer.mean.clone()   # [B, C, 1]
+        _revin_mean = self.normalizer.mean.clone()  # [B, C, 1]
         _revin_stdev = self.normalizer.stdev.clone()  # [B, C, 1]
         x_norm = torch.nan_to_num(x_norm, nan=0, posinf=0, neginf=0)
 
@@ -505,8 +501,7 @@ class BackboneLFPlus(BackboneLF):
             x_aug_norm = (x_aug_raw - _revin_mean) / (_revin_stdev + self.normalizer.eps)
             x_aug_norm = torch.nan_to_num(x_aug_norm, nan=0, posinf=0, neginf=0)
             with torch.no_grad():
-                enc_aug = self._encode_plus(x_aug_norm, aug_mask_for_consistency,
-                                            patch_times=kwargs.get("patch_times"))
+                enc_aug = self._encode_plus(x_aug_norm, aug_mask_for_consistency, patch_times=kwargs.get("patch_times"))
                 pred_aug = self.normalizer(x=self.head(enc_aug), mode="denorm")
 
             consistency_loss = self.consistency_loss_fn(
@@ -545,8 +540,8 @@ class BackboneLFPlus(BackboneLF):
         input_mask=None,
         missing_rate=0.0,
         return_aux=False,
-        channel_mask=None,       # accepted but ignored for non-CRS
-        valid_channel_mask=None, # accepted but ignored for non-CRS
+        channel_mask=None,  # accepted but ignored for non-CRS
+        valid_channel_mask=None,  # accepted but ignored for non-CRS
         **kwargs,
     ):
         """Forward wrapper. channel_mask and valid_channel_mask are accepted but
@@ -598,6 +593,7 @@ class BackboneLFPlus(BackboneLF):
 # =============================================================================
 # CRS extension
 # =============================================================================
+
 
 class CrossChannelAttention(nn.Module):
     """Cross-channel attention applied independently at each patch position.
@@ -694,9 +690,7 @@ class CrossChannelAttention(nn.Module):
         # zero-filled representations don't pollute the residual stream.
         # valid_channel_mask [B, C]: 1=real channel, 0=padding.
         if valid_channel_mask is not None:
-            gate_vcm = valid_channel_mask.to(dtype=x.dtype, device=x.device).view(
-                batch_size, n_channels, 1, 1
-            )
+            gate_vcm = valid_channel_mask.to(dtype=x.dtype, device=x.device).view(batch_size, n_channels, 1, 1)
             out = x + (out - x) * gate_vcm
 
         return out
@@ -1006,7 +1000,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
 
         x_norm = self.normalizer(x=x_enc, mask=revin_mask, mode="norm")
         # Snapshot main-view statistics before anything else can overwrite them.
-        _revin_mean  = self.normalizer.mean.clone()   # [B, C, 1]
+        _revin_mean = self.normalizer.mean.clone()  # [B, C, 1]
         _revin_stdev = self.normalizer.stdev.clone()  # [B, C, 1]
         x_norm = torch.nan_to_num(x_norm, nan=0, posinf=0, neginf=0)
         x_norm = x_norm.clamp(min=-10.0, max=10.0)
@@ -1014,7 +1008,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
         # Fix 5 (mask token): replace zero-fill at missing positions with a
         # learnable mask token.
         if channel_mask is not None and channel_mask.shape == x_norm.shape:
-            missing = (1.0 - channel_mask.to(dtype=x_norm.dtype, device=x_norm.device))
+            missing = 1.0 - channel_mask.to(dtype=x_norm.dtype, device=x_norm.device)
             x_norm = x_norm + missing * self.mask_token
 
         aux_recon_loss = None
@@ -1024,11 +1018,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
 
         if return_aux and self._use_aux_recon:
             x_patched = self.tokenizer(x=x_norm)
-            pv_mask = (
-                input_mask
-                .reshape(input_mask.shape[0], -1, self.patch_len)
-                .max(dim=-1).values
-            )
+            pv_mask = input_mask.reshape(input_mask.shape[0], -1, self.patch_len).max(dim=-1).values
 
             x_patched_masked, pv_mask_masked, target_patches, recon_pos = self.aux_recon_head.select_recon_patch(
                 x_patched, pv_mask
@@ -1046,7 +1036,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
             channel_mask=channel_mask_for_enc,
             valid_channel_mask=valid_channel_mask,
             return_channel_attention=return_channel_attention,
-            crs_channel_mask=channel_mask,   # Fix A: always the original mask
+            crs_channel_mask=channel_mask,  # Fix A: always the original mask
         )
 
         if return_aux and self._use_aux_recon:
@@ -1069,7 +1059,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
             x_aug_norm = torch.nan_to_num(x_aug_norm, nan=0, posinf=0, neginf=0)
             x_aug_norm = x_aug_norm.clamp(min=-10.0, max=10.0)
             if aug_channel_mask is not None and aug_channel_mask.shape == x_aug_norm.shape:
-                aug_missing = (1.0 - aug_channel_mask.to(dtype=x_aug_norm.dtype, device=x_aug_norm.device))
+                aug_missing = 1.0 - aug_channel_mask.to(dtype=x_aug_norm.dtype, device=x_aug_norm.device)
                 x_aug_norm = x_aug_norm + aug_missing * self.mask_token
             with torch.no_grad():
                 enc_aug = self._encode_plus(
@@ -1194,6 +1184,7 @@ class BackboneLFPlusCRS(BackboneLFPlus):
 # =============================================================================
 # Factory functions
 # =============================================================================
+
 
 def build_backbone_lfplus(args, n_channels: int, device: torch.device) -> BackboneLFPlus:
     """Factory: build BackboneLFPlus (non-CRS) from args."""

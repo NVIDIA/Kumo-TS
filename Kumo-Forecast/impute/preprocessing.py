@@ -130,7 +130,8 @@ def make_mask(
         mask = get_col_dropout_mask(data, rate, rng=rng)
     elif pattern == "block":
         mask = get_block_missing_mask(
-            data, rate,
+            data,
+            rate,
             block_size=(block_height, block_width),
             min_block=min_block,
             max_block=max_block,
@@ -339,13 +340,13 @@ class DynamicMissingTSDataset(Dataset):
             rng=rng,
         )  # [seq_len, N]
 
-        x = torch.from_numpy(x_np.copy()).float()   # [seq_len, N]
-        y = torch.from_numpy(y_np.copy()).float()   # [pred_len, N]
-        m = torch.from_numpy(mask).float()          # [seq_len, N]
+        x = torch.from_numpy(x_np.copy()).float()  # [seq_len, N]
+        y = torch.from_numpy(y_np.copy()).float()  # [pred_len, N]
+        m = torch.from_numpy(mask).float()  # [seq_len, N]
 
-        m_ch = m.permute(1, 0)             # [N, seq_len]
-        x = x.permute(1, 0) * m_ch        # [N, seq_len]  — zero-fill missing
-        y = y.permute(1, 0)               # [N, pred_len]
+        m_ch = m.permute(1, 0)  # [N, seq_len]
+        x = x.permute(1, 0) * m_ch  # [N, seq_len]  — zero-fill missing
+        y = y.permute(1, 0)  # [N, pred_len]
         input_mask = m.any(dim=-1).float()  # [seq_len]
 
         return x, y, input_mask, m_ch
@@ -471,9 +472,13 @@ def load_crib_dataset(
     # (This is only used for normalisation — dynamic per-sample masks are
     # applied inside DynamicMissingTSDataset.)
     scaler_mask = make_mask(
-        data, missing_pattern, missing_rate,
-        block_height=block_height, block_width=block_width,
-        min_block=min_block, max_block=max_block,
+        data,
+        missing_pattern,
+        missing_rate,
+        block_height=block_height,
+        block_width=block_width,
+        min_block=min_block,
+        max_block=max_block,
         protect_target_channel=protect_target_channel,
     )
     _, _, M_scaler = sliding_windows(data, scaler_mask, seq_len, pred_len)
@@ -500,12 +505,11 @@ def load_crib_dataset(
     # Different base seeds per split so train/val/test masks never coincide.
     # rate_min applied to train only — val/test use fixed missing_rate for
     # deterministic evaluation at the declared upper bound.
-    tr_ds = DynamicMissingTSDataset(X_tr, Y_tr, missing_pattern, missing_rate,
-                                     seed=seed, rate_min=missing_rate_min, **_ds_kwargs)
-    va_ds = DynamicMissingTSDataset(X_va, Y_va, missing_pattern, missing_rate,
-                                     seed=seed + 10_000, **_ds_kwargs)
-    te_ds = DynamicMissingTSDataset(X_te, Y_te, missing_pattern, missing_rate,
-                                     seed=seed + 20_000, **_ds_kwargs)
+    tr_ds = DynamicMissingTSDataset(
+        X_tr, Y_tr, missing_pattern, missing_rate, seed=seed, rate_min=missing_rate_min, **_ds_kwargs
+    )
+    va_ds = DynamicMissingTSDataset(X_va, Y_va, missing_pattern, missing_rate, seed=seed + 10_000, **_ds_kwargs)
+    te_ds = DynamicMissingTSDataset(X_te, Y_te, missing_pattern, missing_rate, seed=seed + 20_000, **_ds_kwargs)
 
     kw = dict(
         batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn, pin_memory=torch.cuda.is_available()
@@ -684,10 +688,13 @@ class CSVForecastMissingDataset(Dataset):
         # the actual missingness pattern used during that split's windows.
         rng_state = np.random.get_state()
         try:
-            np.random.seed(random_seed)               # train offset = 0
+            np.random.seed(random_seed)  # train offset = 0
             train_mask = make_mask(
-                raw_values, missing_pattern, missing_rate,
-                min_block=min_block, max_block=max_block,
+                raw_values,
+                missing_pattern,
+                missing_rate,
+                min_block=min_block,
+                max_block=max_block,
                 protect_target_channel=protect_target_channel,
             )
             split_offset = {"train": 0, "val": 10_000, "test": 20_000}[data_split]
@@ -696,8 +703,11 @@ class CSVForecastMissingDataset(Dataset):
             else:
                 np.random.seed(random_seed + split_offset)
                 full_mask = make_mask(
-                    raw_values, missing_pattern, missing_rate,
-                    min_block=min_block, max_block=max_block,
+                    raw_values,
+                    missing_pattern,
+                    missing_rate,
+                    min_block=min_block,
+                    max_block=max_block,
                     protect_target_channel=protect_target_channel,
                 )
         finally:
@@ -707,7 +717,7 @@ class CSVForecastMissingDataset(Dataset):
             # Fit scaler on train-split observed values only (consistent across splits).
             self.standardizer = ChannelObservedScaler.fit(
                 raw_values[:train_end],
-                train_mask[:train_end],   # always train mask, not split mask
+                train_mask[:train_end],  # always train mask, not split mask
                 channels=self.channels,
             )
             values = self.standardizer.transform(raw_values)
@@ -874,9 +884,7 @@ class MultiCSVForecastMissingDataset(Dataset):
         # Pre-build per-dataset column→union-index maps for name-based alignment.
         self._channel_maps: list[list[int]] = []
         for ds in self.datasets:
-            self._channel_maps.append(
-                [self.channels.index(col) for col in ds.channels]
-            )
+            self._channel_maps.append([self.channels.index(col) for col in ds.channels])
 
         for ds_idx, ds in enumerate(self.datasets):
             for item_idx in range(len(ds)):
@@ -899,18 +907,18 @@ class MultiCSVForecastMissingDataset(Dataset):
         hist, fut, temporal_mask, channel_mask, valid_channel_mask = self.datasets[ds_idx][item_idx]
         col_map = self._channel_maps[ds_idx]  # local col_idx → union col_idx
 
-        hist_padded         = torch.zeros((self.max_channels, hist.shape[1]),         dtype=torch.float32)
-        fut_padded          = torch.zeros((self.max_channels, fut.shape[1]),           dtype=torch.float32)
+        hist_padded = torch.zeros((self.max_channels, hist.shape[1]), dtype=torch.float32)
+        fut_padded = torch.zeros((self.max_channels, fut.shape[1]), dtype=torch.float32)
         channel_mask_padded = torch.zeros((self.max_channels, channel_mask.shape[1]), dtype=torch.float32)
-        valid_padded        = torch.zeros((self.max_channels,),                        dtype=torch.float32)
+        valid_padded = torch.zeros((self.max_channels,), dtype=torch.float32)
 
         # Align by column name (col_map maps local index → union index), not
         # by position.  CSVs with different column orderings are handled correctly.
         for local_i, union_i in enumerate(col_map):
-            hist_padded[union_i]         = hist[local_i]
-            fut_padded[union_i]          = fut[local_i]
+            hist_padded[union_i] = hist[local_i]
+            fut_padded[union_i] = fut[local_i]
             channel_mask_padded[union_i] = channel_mask[local_i]
-            valid_padded[union_i]        = valid_channel_mask[local_i]
+            valid_padded[union_i] = valid_channel_mask[local_i]
 
         return hist_padded, fut_padded, temporal_mask, channel_mask_padded, valid_padded
 

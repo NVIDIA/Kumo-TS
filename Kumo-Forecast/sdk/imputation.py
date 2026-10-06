@@ -91,9 +91,7 @@ def _resolve_impute_ckpt(ckpt: str | Path, local_files_only: bool = False) -> Pa
     return resolve_checkpoint_path(ckpt)
 
 
-def _get_impute_model(
-    ckpt: str | Path, device: torch.device, local_files_only: bool = False
-) -> tuple[Any, Any]:
+def _get_impute_model(ckpt: str | Path, device: torch.device, local_files_only: bool = False) -> tuple[Any, Any]:
     """Load (or reuse) an impute model + info for ``ckpt`` on ``device``."""
     from impute.inference import load_impute_model
 
@@ -173,10 +171,12 @@ class ChannelScaler:
     @classmethod
     def from_stats(cls, columns: list[str], stats: dict[str, Any]) -> ChannelScaler:
         """Build from caller-supplied ``{"mean": {col: m}, "std": {col: s}}`` (see ``fit_impute_scaler_stats``)."""
-        if not isinstance(stats, dict) or not isinstance(stats.get("mean"), dict) or not isinstance(stats.get("std"), dict):
-            raise ValueError(
-                'impute_scaler_stats must be a mapping {"mean": {column: value}, "std": {column: value}}'
-            )
+        if (
+            not isinstance(stats, dict)
+            or not isinstance(stats.get("mean"), dict)
+            or not isinstance(stats.get("std"), dict)
+        ):
+            raise ValueError('impute_scaler_stats must be a mapping {"mean": {column: value}, "std": {column: value}}')
         means, stds = stats["mean"], stats["std"]
         missing = [c for c in columns if c not in means or c not in stds]
         if missing:
@@ -439,7 +439,9 @@ def _resolve_seq_len(cfg: ForecastingConfig, ckpt_seq_len: int) -> int:
     )
 
 
-def _build_scaler(values: np.ndarray, columns: list[str], info: Any, cfg: ForecastingConfig, seq_len: int) -> ChannelScaler:
+def _build_scaler(
+    values: np.ndarray, columns: list[str], info: Any, cfg: ForecastingConfig, seq_len: int
+) -> ChannelScaler:
     normalization = cfg.impute_normalization
     if normalization not in NORMALIZATION_MODES:
         raise ValueError(f"impute_normalization must be one of {NORMALIZATION_MODES}, got {normalization!r}")
@@ -455,8 +457,7 @@ def _build_scaler(values: np.ndarray, columns: list[str], info: Any, cfg: Foreca
     if normalization == "provided":
         if cfg.impute_scaler_stats is None:
             raise ValueError(
-                "impute_normalization='provided' requires impute_scaler_stats "
-                "(e.g. from sdk.fit_impute_scaler_stats)"
+                "impute_normalization='provided' requires impute_scaler_stats (e.g. from sdk.fit_impute_scaler_stats)"
             )
         return ChannelScaler.from_stats(columns, cfg.impute_scaler_stats)
 

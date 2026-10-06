@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-
 from impute.inference import (
     DEFAULT_IMPUTE_CKPT,
     HFReference,
@@ -787,7 +786,9 @@ def test_handle_missingness_off_keeps_zero_fill_path(monkeypatch, caplog):
     monkeypatch.setattr(imputation, "perform_missingness_aware_forecasting", fail)
     monkeypatch.setattr(forecasting, "build_model", lambda **kwargs: LastValueModel())
     monkeypatch.setattr(forecasting.torch, "load", lambda *args, **kwargs: {})
-    monkeypatch.setattr(forecasting, "download_model_weights", lambda *, standardizer_pkl, ckpt, **kw: (standardizer_pkl, ckpt))
+    monkeypatch.setattr(
+        forecasting, "download_model_weights", lambda *, standardizer_pkl, ckpt, **kw: (standardizer_pkl, ckpt)
+    )
     monkeypatch.setattr(
         forecasting.joblib,
         "load",
@@ -823,7 +824,13 @@ def test_handle_missingness_off_keeps_zero_fill_path(monkeypatch, caplog):
 class FakeHub:
     """Stand-in for huggingface_hub.snapshot_download serving a tiny checkpoint from <snapshot>/<subfolder>."""
 
-    def __init__(self, root: Path, source_ckpt: Path, subfolder: str = "kumo-forecast-1.2.0", config_name: str = "config_base.json"):
+    def __init__(
+        self,
+        root: Path,
+        source_ckpt: Path,
+        subfolder: str = "kumo-forecast-1.2.0",
+        config_name: str = "config_base.json",
+    ):
         self.root, self.source, self.subfolder, self.config_name = root, source_ckpt, subfolder, config_name
         self.calls: list[dict] = []
         self.error: Exception | None = None
@@ -837,7 +844,9 @@ class FakeHub:
         folder.mkdir(parents=True, exist_ok=True)
         if self.include_weights:
             (folder / "best_model.pt").write_bytes((self.source / "best_model.pt").read_bytes())
-        (folder / self.config_name).write_text((self.source / "config.json").read_text(encoding="utf-8"), encoding="utf-8")
+        (folder / self.config_name).write_text(
+            (self.source / "config.json").read_text(encoding="utf-8"), encoding="utf-8"
+        )
         return str(self.root)
 
 
@@ -851,7 +860,10 @@ def fake_hub(monkeypatch, tmp_path, ckpt_dirs) -> FakeHub:
 @pytest.mark.parametrize(
     ("ref", "expected"),
     [
-        ("hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0", HFReference("nvidia/Kumo-Forecast", None, "kumo-forecast-1.2.0")),
+        (
+            "hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0",
+            HFReference("nvidia/Kumo-Forecast", None, "kumo-forecast-1.2.0"),
+        ),
         ("hf://nvidia/Kumo-Forecast@v1.2/impute", HFReference("nvidia/Kumo-Forecast", "v1.2", "impute")),
         ("hf://org/repo", HFReference("org/repo", None, "")),
         ("hf://org/repo@abc123", HFReference("org/repo", "abc123", "")),
@@ -873,7 +885,9 @@ def test_default_impute_ckpt_is_released_location():
 
 
 def test_download_hf_checkpoint_fetches_only_inference_files(fake_hub):
-    folder = download_hf_checkpoint("hf://nvidia/Kumo-Forecast@v1/kumo-forecast-1.2.0", local_files_only=True, token=False)
+    folder = download_hf_checkpoint(
+        "hf://nvidia/Kumo-Forecast@v1/kumo-forecast-1.2.0", local_files_only=True, token=False
+    )
 
     call = fake_hub.calls[0]
     assert call["repo_id"] == "nvidia/Kumo-Forecast"
@@ -881,7 +895,11 @@ def test_download_hf_checkpoint_fetches_only_inference_files(fake_hub):
     assert call["local_files_only"] is True
     assert call["token"] is False  # passed through (False = never send a token)
     patterns = call["allow_patterns"]
-    assert sorted(patterns) == ["kumo-forecast-1.2.0/best_model.pt", "kumo-forecast-1.2.0/config.json", "kumo-forecast-1.2.0/config_base.json"]
+    assert sorted(patterns) == [
+        "kumo-forecast-1.2.0/best_model.pt",
+        "kumo-forecast-1.2.0/config.json",
+        "kumo-forecast-1.2.0/config_base.json",
+    ]
     assert folder == fake_hub.root / "kumo-forecast-1.2.0"
 
 
@@ -889,7 +907,9 @@ def test_config_base_json_is_accepted_locally(tmp_path, ckpt_dirs):
     folder = tmp_path / "release"
     folder.mkdir()
     (folder / "best_model.pt").write_bytes((ckpt_dirs["plus"] / "best_model.pt").read_bytes())
-    (folder / "config_base.json").write_text((ckpt_dirs["plus"] / "config.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (folder / "config_base.json").write_text(
+        (ckpt_dirs["plus"] / "config.json").read_text(encoding="utf-8"), encoding="utf-8"
+    )
     _, info = load_impute_model(folder)
     assert info.seq_len == SEQ_LEN
 
@@ -925,7 +945,9 @@ def test_perform_forecasting_defaults_to_released_checkpoint(fake_hub):
 
 
 def test_local_files_only_is_passed_to_the_hub(fake_hub):
-    forecasting.perform_forecasting(make_df(), config=cfg("hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0", local_files_only=True))
+    forecasting.perform_forecasting(
+        make_df(), config=cfg("hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0", local_files_only=True)
+    )
     assert fake_hub.calls[0]["local_files_only"] is True
 
 
@@ -1228,7 +1250,9 @@ def test_real_checkpoint_unknown_column_names_require_positional(real_cached):
 REAL_HF = os.environ.get("KUMO_IMPUTE_HF")  # e.g. hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0
 
 
-@pytest.mark.skipif(not REAL_HF, reason="set KUMO_IMPUTE_HF (e.g. hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0) to test the Hub")
+@pytest.mark.skipif(
+    not REAL_HF, reason="set KUMO_IMPUTE_HF (e.g. hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0) to test the Hub"
+)
 def test_real_hf_checkpoint_downloads_and_forecasts():
     imputation.clear_impute_model_cache()
     model, info = imputation._get_impute_model(REAL_HF, forecasting.DEVICE)
@@ -1365,7 +1389,9 @@ def test_real_synthetic_forecasts_are_sensible(real_cached, spec):
     """Release gate on clean structured data with any names/frequency/width: finite forecasts, no worse than
     1.2 x the last-value (persistence) forecast; baselines are printed alongside for reference."""
     _, info = real_cached
-    df, target, period = _synthetic_frame(spec, info.seq_len * 6 + info.pred_len * SYN_WINDOWS, seed=101 + list(SYN_SPECS).index(spec))
+    df, target, period = _synthetic_frame(
+        spec, info.seq_len * 6 + info.pred_len * SYN_WINDOWS, seed=101 + list(SYN_SPECS).index(spec)
+    )
     m = _syn_eval(info, df, target, period)
     print(
         f"\nreal ckpt synthetic | {spec:26s} | channels={df.shape[1] - 1:2d} | MAE model={m['model']:.3f} "
@@ -1380,7 +1406,9 @@ def test_real_synthetic_forecasts_are_sensible(real_cached, spec):
 def test_real_synthetic_missingness_degrades_gracefully(real_cached, pattern):
     """Gaps in the input window may cost accuracy, but the model must stay well-behaved and better than flat."""
     _, info = real_cached
-    df, target, period = _synthetic_frame("hourly_daily_cycle_4feat", info.seq_len * 6 + info.pred_len * SYN_WINDOWS, seed=11)
+    df, target, period = _synthetic_frame(
+        "hourly_daily_cycle_4feat", info.seq_len * 6 + info.pred_len * SYN_WINDOWS, seed=11
+    )
     results = {rate: _syn_eval(info, df, target, period, rate=rate, pattern=pattern) for rate in (0.0, 0.3, 0.5)}
     for rate, m in results.items():
         print(
@@ -1423,7 +1451,9 @@ def test_real_synthetic_random_names_need_positional(real_cached):
             forecasting.perform_forecasting(df, config=_syn_config(info, target, impute_channel_alignment="name"))
     out = forecasting.perform_forecasting(df, config=_syn_config(info, target, return_all_channels=True))
     value_cols = [c for c in df.columns if c != "timestamp"]
-    assert list(out.columns) == ["timestamp", f"{target}_forecast"] + [f"{c}_forecast" for c in value_cols if c != target]
+    assert list(out.columns) == ["timestamp", f"{target}_forecast"] + [
+        f"{c}_forecast" for c in value_cols if c != target
+    ]
     assert np.isfinite(out.drop(columns="timestamp").to_numpy()).all()
     assert out["timestamp"].iloc[0] == df["timestamp"].iloc[-1] + pd.Timedelta(days=1)
 

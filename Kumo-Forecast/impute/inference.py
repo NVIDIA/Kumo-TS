@@ -45,6 +45,7 @@ def _quiet_head_warning():
         warnings.filterwarnings("ignore", message="Only reconstruction head is pre-trained")
         yield
 
+
 CHECKPOINT_FILENAMES = ("best_model.pt", "model.pt", "checkpoint.pt")
 CONFIG_FILENAMES = ("config.json", "config_base.json")  # searched in this order
 CONFIG_FILENAME = CONFIG_FILENAMES[0]
@@ -194,7 +195,9 @@ def download_hf_checkpoint(
     try:
         from huggingface_hub import snapshot_download
     except ImportError as e:  # pragma: no cover - huggingface_hub is a project dependency
-        raise ImportError("huggingface_hub is required for hf:// impute checkpoints: pip install huggingface_hub") from e
+        raise ImportError(
+            "huggingface_hub is required for hf:// impute checkpoints: pip install huggingface_hub"
+        ) from e
 
     ref = parse_hf_reference(ref) if isinstance(ref, str) else ref
     prefix = f"{ref.subfolder}/" if ref.subfolder else ""
@@ -215,8 +218,7 @@ def download_hf_checkpoint(
     folder = Path(snapshot) / ref.subfolder if ref.subfolder else Path(snapshot)
     if not (folder / "best_model.pt").is_file():
         raise FileNotFoundError(
-            f"Impute checkpoint {ref} has no weights file (best_model.pt) in "
-            f"{ref.subfolder or 'the repo root'}"
+            f"Impute checkpoint {ref} has no weights file (best_model.pt) in {ref.subfolder or 'the repo root'}"
         )
     if not any((folder / name).is_file() for name in CONFIG_FILENAMES):
         raise FileNotFoundError(
@@ -282,9 +284,7 @@ def _t5_prefix(state_dict: dict) -> str:
     return "encoder.encoder." if any(k.startswith("encoder.encoder.block.") for k in state_dict) else "encoder."
 
 
-def detect_t5_arch_from_state_dict(
-    state_dict: dict, d_model: int
-) -> tuple[int, str | None, int | None, int | None]:
+def detect_t5_arch_from_state_dict(state_dict: dict, d_model: int) -> tuple[int, str | None, int | None, int | None]:
     """Infer ``(d_ff, feed_forward_proj, n_heads, enc_layers)`` from checkpoint weights.
 
     ``n_heads`` / ``enc_layers`` are ``None`` when they can't be inferred.
@@ -350,7 +350,10 @@ def build_model_from_config(
         d_ff, ffp, det_heads, det_layers = detect_t5_arch_from_state_dict(state_dict, d_model)
         logger.info(
             "Detected arch from checkpoint: d_ff=%d ffp=%s n_heads=%s enc_layers=%s",
-            d_ff, ffp or "relu", det_heads, det_layers,
+            d_ff,
+            ffp or "relu",
+            det_heads,
+            det_layers,
         )
     else:
         d_ff = config.get("d_ff") or d_model * 4
@@ -520,7 +523,8 @@ def _training_schema(
     if schema is not None and len(schema) != trained_n_channels:
         logger.warning(
             "Training channel schema has %d names but the checkpoint has %d channels; ignoring the schema",
-            len(schema), trained_n_channels,
+            len(schema),
+            trained_n_channels,
         )
         schema = None
 
@@ -579,9 +583,7 @@ def load_impute_model(
         RuntimeError: checkpoint weights don't match the rebuilt architecture.
     """
     device = torch.device(device)
-    checkpoint_path = resolve_checkpoint_path(
-        ckpt, local_files_only=local_files_only, token=token, cache_dir=cache_dir
-    )
+    checkpoint_path = resolve_checkpoint_path(ckpt, local_files_only=local_files_only, token=token, cache_dir=cache_dir)
     config_dict = load_config_json(checkpoint_path, config)
 
     checkpoint = _torch_load(checkpoint_path)
@@ -638,7 +640,12 @@ def load_impute_model(
 
     logger.info(
         "Loaded impute model %s (epoch %s): seq_len=%d pred_len=%d trained_channels=%d crs=%s",
-        type(model).__name__, epoch, info.seq_len, info.pred_len, trained_c, is_crs,
+        type(model).__name__,
+        epoch,
+        info.seq_len,
+        info.pred_len,
+        trained_c,
+        is_crs,
     )
     return model, info
 

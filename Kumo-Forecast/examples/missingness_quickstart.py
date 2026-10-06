@@ -62,7 +62,9 @@ def main() -> None:
     parser.add_argument("--target", default="OT")
     parser.add_argument("--horizon", type=int, default=48)
     parser.add_argument("--missing-rate", type=float, default=0.15)
-    parser.add_argument("--ckpt", default=None, help="hf://... reference or local folder (default: released checkpoint)")
+    parser.add_argument(
+        "--ckpt", default=None, help="hf://... reference or local folder (default: released checkpoint)"
+    )
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv).rename(columns={"date": "timestamp"}) if args.csv else synthetic_frame()
@@ -71,7 +73,9 @@ def main() -> None:
     gappy.loc[gappy.index[-1], args.target] = df[args.target].iloc[-1]
     features = set(gappy.columns) - {"timestamp", args.target}
     alignment = "name" if features <= TRAINING_CHANNELS else "positional"
-    print(f"{len(gappy)} rows, {int(gappy.drop(columns='timestamp').isna().sum().sum())} missing cells, alignment={alignment}")
+    print(
+        f"{len(gappy)} rows, {int(gappy.drop(columns='timestamp').isna().sum().sum())} missing cells, alignment={alignment}"
+    )
 
     config = ForecastingConfig(
         target_column=args.target,
