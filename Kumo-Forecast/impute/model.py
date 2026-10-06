@@ -406,29 +406,28 @@ class BackboneLFPlus(BackboneLF):
                 except (AttributeError, IndexError):
                     continue
 
-                def make_hook(mod):
-                    def hook(module, inputs, output):
-                        if not isinstance(output, tuple) or len(output) < 2:
-                            return output
-                        pb = output[1]
-                        if pb is not None:
-                            # T5 returned a position bias — add our obs bias to it.
-                            # d_bias: [B, n_heads, P, P]; pb: [1, n_heads, P, P]
-                            # broadcast is safe as long as non-batch dims match.
-                            if pb.shape[1:] == d_bias.shape[1:]:
-                                return (output[0], pb + d_bias) + output[2:]
-                            return output
-                        # pb is None: this T5 block did not emit a position-bias
-                        # tensor (output[1] doesn't exist).  We cannot inject
-                        # d_bias into the attention scores in this case, so return
-                        # output unchanged.  The obs-attn bias is still applied in
-                        # the blocks that DO emit position bias (the first T5 block
-                        # computes it; subsequent blocks receive it as pb ≠ None).
-                        return output
+                def add_observation_bias(module, args, kwargs):
+                    # T5 shares the first attention's position bias across blocks.
+                    # Supply it BEFORE attention and only when it is first created;
+                    # changing the returned bias would miss block 0 and accumulate.
+                    if kwargs.get("position_bias") is not None:
+                        return args, kwargs
 
-                    return hook
+                    hidden_states = args[0] if args else kwargs["hidden_states"]
+                    n_patches = hidden_states.shape[1]
+                    if module.has_relative_attention_bias:
+                        position_bias = module.compute_bias(n_patches, n_patches, device=hidden_states.device)
+                    else:
+                        position_bias = hidden_states.new_zeros((1, module.n_heads, n_patches, n_patches))
+                    # T5 skips applying the attention mask when position_bias is
+                    # supplied, so include its additive mask exactly once here.
+                    mask = kwargs.get("mask")
+                    if mask is not None:
+                        position_bias = position_bias + mask[:, :, :, :n_patches]
+                    kwargs["position_bias"] = position_bias + d_bias
+                    return args, kwargs
 
-                h = attn_module.register_forward_hook(make_hook(attn_module))
+                h = attn_module.register_forward_pre_hook(add_observation_bias, with_kwargs=True)
                 hooks.append(h)
 
         try:

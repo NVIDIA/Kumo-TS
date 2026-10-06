@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+from impute.backbone_lieflow import LieEquivariantEncoderWrapper
 from impute.inference import (
     DEFAULT_IMPUTE_CKPT,
     HFReference,
@@ -72,6 +73,66 @@ def _train_args(use_crs: bool) -> Namespace:
         use_missingness_residual_adapter=True,
         randomly_initialize_backbone=True,
     )
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("n_layers", [1, 3, 24])
+def test_observation_bias_applies_once_before_every_attention(wrapped, n_layers):
+    args = _train_args(use_crs=False)
+    args.enc_layers = n_layers
+    torch.manual_seed(7)
+    model = build_model(args, n_channels=TRAINED_CHANNELS, device=torch.device("cpu")).eval()
+    raw_encoder = model.encoder
+    if wrapped:
+        model.encoder = LieEquivariantEncoderWrapper(
+            raw_encoder, d_model=32, n_heads=2, head_dim=16, adapter_rank=4
+        ).eval()
+
+    enc_in = torch.randn(2, 4, 32)
+    mask = torch.tensor([[1, 0, 1, 1], [1, 1, 0, 1]])
+    # A nonconstant bias changes the softmax, unlike a uniform offset.
+    d_bias = torch.randn(2, 2, 4, 4, requires_grad=True)
+    seen = []
+
+    def capture_attention(module, inputs, output):
+        seen.append(output[1])
+
+    captures = [block.layer[0].SelfAttention.register_forward_hook(capture_attention) for block in raw_encoder.block]
+    try:
+        actual = model._run_encoder_with_bias(enc_in, mask, None, d_bias).last_hidden_state
+    finally:
+        for hook in captures:
+            hook.remove()
+
+    # Independent reference: T5 accepts a prepared additive mask, adds it to
+    # relative bias before block 0, and shares that bias across all blocks.
+    additive_mask = (1 - mask[:, None, None, :].to(enc_in.dtype)) * torch.finfo(enc_in.dtype).min
+    expected = model.encoder(inputs_embeds=enc_in, attention_mask=additive_mask + d_bias).last_hidden_state
+    torch.testing.assert_close(actual, expected)
+    relative_bias = raw_encoder.block[0].layer[0].SelfAttention.compute_bias(4, 4)
+    expected_bias = relative_bias + additive_mask + d_bias
+    assert len(seen) == n_layers
+    for bias in seen:
+        torch.testing.assert_close(bias, expected_bias)
+    assert all(not block.layer[0].SelfAttention._forward_pre_hooks for block in raw_encoder.block)
+
+    # The injected bias must participate in attention even in a one-block model.
+    actual.square().sum().backward()
+    assert d_bias.grad is not None
+    assert torch.isfinite(d_bias.grad).all()
+    assert torch.count_nonzero(d_bias.grad) > 0
+
+
+@pytest.mark.parametrize("bias", [None, torch.zeros(2, 2, 4, 4)])
+def test_observation_bias_disabled_or_zero_preserves_t5_output(bias):
+    args = _train_args(use_crs=False)
+    args.enc_layers = 3
+    model = build_model(args, n_channels=TRAINED_CHANNELS, device=torch.device("cpu")).eval()
+    enc_in = torch.randn(2, 4, 32)
+    mask = torch.tensor([[1, 0, 1, 1], [1, 1, 0, 1]])
+    expected = model.encoder(inputs_embeds=enc_in, attention_mask=mask).last_hidden_state
+    actual = model._run_encoder_with_bias(enc_in, mask, None, bias).last_hidden_state
+    torch.testing.assert_close(actual, expected)
 
 
 def _write_checkpoint(folder: Path, use_crs: bool) -> Path:
