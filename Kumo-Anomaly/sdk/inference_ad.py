@@ -2,21 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Inference function for anomaly detection using NV-Tesseract AD diffusion model
+Inference function for anomaly detection using Kumo-Anomaly model
 
-This script defines functions that perform anomaly detection on datasets using NV-Tesseract diffusion models.
-Note: This package uses a flat import structure - ensure the ad_diffusion directory is in your Python path.
+This script defines functions that perform anomaly detection on datasets using Kumo-Anomaly diffusion models.
+Note: This package uses a flat import structure - ensure the Kumo-Anomaly directory is in your Python path.
 
 Usage:
 import sys, os
-sys.path.append('/path/to/ad_diffusion')  # Adjust path as needed
+sys.path.append('/path/to/Kumo-Anomaly')  # Adjust path as needed
 from sdk.inference_ad import inference_ad_tesseract2
 
 # Explicit paths
 results = inference_ad_tesseract2(data, model_path, config_path, nsample=30)
 
 # Or let the SDK auto-download weights from Hugging Face
-# (nvidia/nv-tesseract-ad-diffusion -> final_model.pth + curriculum_medium.yaml)
+# (nvidia/Kumo-Anomaly -> final_model.pth + curriculum_medium.yaml)
 results = inference_ad_tesseract2(data, nsample=30)
 
 # Pre-fetch weights manually (e.g. to pick a custom cache directory)
@@ -98,8 +98,8 @@ elif torch.backends.mps.is_available():
 else:
     DEVICE = "cpu"
 
-# Default Hugging Face repository and asset names for the AD Diffusion model
-HF_REPO_ID = "nvidia/nv-tesseract-ad-diffusion"
+# Default Hugging Face repository and asset names for the Kumo-Anomaly model
+HF_REPO_ID = "nvidia/Kumo-Anomaly"
 DEFAULT_MODEL_FILENAME = "final_model.pth"
 DEFAULT_CONFIG_FILENAME = "curriculum_medium.yaml"
 
@@ -114,6 +114,7 @@ PROFILE_RESIDUALS = os.environ.get("TESSERACT_PROFILE_RESIDUALS", "0") == "1"
 
 # Default seed for reproducibility
 DEFAULT_SEED = 42
+DEFAULT_FEATURE_EMBEDDING_MODE = "shared_mean_norm_matched_zero_pad"
 INFERENCE_BATCH_SIZE = 32
 
 
@@ -992,12 +993,12 @@ def download_model_weights(
     token: str | bool | None = None,
 ) -> tuple[str, str]:
     """
-    Auto-download AD Diffusion model weights from Hugging Face if they don't exist locally.
+    Auto-download Kumo-Anomaly model weights from Hugging Face if they don't exist locally.
 
     Args:
         model_path: Local path for the model checkpoint (default: final_model.pth)
         config_path: Local path for the model config YAML (default: curriculum_medium.yaml)
-        repo_id: Hugging Face repository ID (default: nvidia/nv-tesseract-ad-diffusion)
+        repo_id: Hugging Face repository ID (default: nvidia/Kumo-Anomaly)
         force_download: Force re-download even if files exist
 
     Returns:
@@ -1028,7 +1029,7 @@ def download_model_weights(
             "Install it with: `uv add huggingface_hub` or `pip install huggingface_hub`."
         )
 
-    logger.info("Downloading AD Diffusion weights from Hugging Face (%s)...", repo_id)
+    logger.info("Downloading Kumo-Anomaly weights from Hugging Face (%s)...", repo_id)
 
     # Download each file to its own parent directory so returned paths always exist
     try:
@@ -1045,7 +1046,7 @@ def download_model_weights(
                     cache_dir=str(cache_dir) if cache_dir else None,
                     local_files_only=local_files_only,
                     token=token,
-                    library_name="nv-tesseract",
+                    library_name="kumo-ts",
                 )
                 logger.info("Downloaded: %s", file_path.name)
 
@@ -1108,7 +1109,7 @@ def get_model_target_dim(model_path: str | None = None, config_path: str = "") -
     Extract target_dim from model checkpoint or config without loading the full model.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from the Hugging Face repository ``nvidia/nv-tesseract-ad-diffusion``.
+    downloaded from the Hugging Face repository ``nvidia/Kumo-Anomaly``.
 
     Args:
         model_path: Path to the model checkpoint. If ``None`` or missing locally,
@@ -1137,12 +1138,13 @@ def inference_ad_tesseract2(
     preprocess_model_dir=None,
     use_dpm_solver=True,
     dpm_steps=20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ):
     """
-    Perform anomaly detection inference using NV-Tesseract AD diffusion model.
+    Perform anomaly detection inference using Kumo-Anomaly model.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from ``nvidia/nv-tesseract-ad-diffusion`` on Hugging Face Hub.
+    downloaded from ``nvidia/Kumo-Anomaly`` on Hugging Face Hub.
 
     Args:
         data: DataFrame with pre-cleaned numeric data. Users should remove any unwanted
@@ -1155,6 +1157,11 @@ def inference_ad_tesseract2(
         preprocess_model_dir: Directory containing preprocessing model (optional)
         use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` to use the checkpoint's original
+            position-specific feature embeddings.
 
     Returns:
         dict: Dictionary containing:
@@ -1165,6 +1172,7 @@ def inference_ad_tesseract2(
             - target_dim: Target dimension used by the model
             - valid_feature_mask: Model dimensions included in residual scores
             - score_feature_count: Number of dimensions included in scores
+            - feature_embedding_mode: Feature-embedding mode used for inference
 
     Note:
         For reproducible results, call set_seed() before this function.
@@ -1181,8 +1189,20 @@ def inference_ad_tesseract2(
         config = load_config(resolved_config)
 
     target_dim = config["model"].get("target_dim", 40)
+    valid_feature_mask = _score_feature_mask_for_dataframe(
+        data,
+        target_dim,
+        model_dir=preprocess_model_dir,
+    )
 
-    model = TSDiffuser_Generic(config, device=device, target_dim=target_dim, ratio=0.7)
+    model = TSDiffuser_Generic(
+        config,
+        device=device,
+        target_dim=target_dim,
+        ratio=0.7,
+        feature_embedding_mode=feature_embedding_mode,
+        num_active_features=int(valid_feature_mask.sum()),
+    )
     if isinstance(checkpoint, dict):
         if "model" in checkpoint:
             # Load model state
@@ -1213,6 +1233,7 @@ def inference_ad_tesseract2(
 
     # Add target_dim to results
     results["target_dim"] = target_dim
+    results["feature_embedding_mode"] = feature_embedding_mode
 
     return results
 
@@ -1230,12 +1251,13 @@ def inference_ad_tesseract2_mp(
     deterministic: bool = True,
     use_dpm_solver: bool = True,
     dpm_steps: int = 20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> dict:
     """
     Multi-GPU inference using subprocess workers and shared-memory windows.
 
     If ``model_path``/``config_path`` do not exist locally, they are automatically
-    downloaded from ``nvidia/nv-tesseract-ad-diffusion`` on Hugging Face Hub.
+    downloaded from ``nvidia/Kumo-Anomaly`` on Hugging Face Hub.
 
     Args:
         data: DataFrame with pre-cleaned numeric data.
@@ -1251,6 +1273,10 @@ def inference_ad_tesseract2_mp(
         deterministic: If True, enable deterministic behavior in workers.
         use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
 
     Returns:
         dict with residual, residual_l2, target, recon, target_dim,
@@ -1275,6 +1301,7 @@ def inference_ad_tesseract2_mp(
             preprocess_model_dir=preprocess_model_dir,
             use_dpm_solver=use_dpm_solver,
             dpm_steps=dpm_steps,
+            feature_embedding_mode=feature_embedding_mode,
         )
 
     if gpu_ids is None:
@@ -1364,6 +1391,8 @@ def inference_ad_tesseract2_mp(
                     "preprocess_model_dir": preprocess_model_dir,
                     "use_dpm_solver": use_dpm_solver,
                     "dpm_steps": dpm_steps,
+                    "feature_embedding_mode": feature_embedding_mode,
+                    "num_active_features": int(valid_feature_mask.sum()),
                     "valid_feature_mask": valid_feature_mask.tolist(),
                 }
                 with open(args_file, "w") as f:
@@ -1396,23 +1425,25 @@ def inference_ad_tesseract2_mp(
                     k: np.array(v) if isinstance(v, list) else v for k, v in data["results"].items()
                 }
 
-        return _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results = _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results["feature_embedding_mode"] = feature_embedding_mode
+        return results
     finally:
         _cleanup_shared_memory(shm_info)
 
 
 class NVTesseractADDiffusion(
     ModelHubMixin,
-    library_name="nv-tesseract",
+    library_name="kumo-ts",
     tags=["time-series", "anomaly-detection"],
-    repo_url="https://github.com/NVIDIA/NV-Tesseract",
-    docs_url="https://huggingface.co/nvidia/nv-tesseract-ad-diffusion",
+    repo_url="https://github.com/NVIDIA/Kumo-TS",
+    docs_url="https://huggingface.co/nvidia/Kumo-Anomaly",
 ):
-    """NV-Tesseract AD Diffusion anomaly detection model with HuggingFace Hub integration.
+    """Kumo-Anomaly anomaly detection model with HuggingFace Hub integration.
 
     Example::
 
-        model = NVTesseractADDiffusion.from_pretrained("nvidia/nv-tesseract-ad-diffusion")
+        model = NVTesseractADDiffusion.from_pretrained("nvidia/Kumo-Anomaly")
         results = model.detect(data, nsample=30)
 
         # Save weights locally or push to Hub

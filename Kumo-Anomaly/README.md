@@ -1,6 +1,6 @@
-# AD Diffusion
+# Kumo-Anomaly
 
-A package for anomaly detection using NV-Tesseract diffusion models.
+A package for anomaly detection using Kumo-Anomaly diffusion models.
 
 ## Features
 
@@ -10,7 +10,7 @@ A package for anomaly detection using NV-Tesseract diffusion models.
 - **Fast Inference**: Supports DPM-Solver for 50-100x speedup over standard diffusion
 - **Preprocessing Pipeline**: Complete TSB-AD compatible preprocessing with domain adaptation
 - **Model-agnostic Explainability**: Attributes each detected anomaly's MAE to its largest reconstruction errors
-- **Auto-download from Hugging Face**: Pretrained weights are fetched automatically from [`nvidia/nv-tesseract-ad-diffusion`](https://huggingface.co/nvidia/nv-tesseract-ad-diffusion) on first use
+- **Auto-download from Hugging Face**: Pretrained weights are fetched automatically from [`nvidia/Kumo-Anomaly`](https://huggingface.co/nvidia/Kumo-Anomaly) on first use
 - **Simple Structure**: Organized as modules without Python package complexity - easy to use and modify
 
 ## Quick Start
@@ -54,13 +54,13 @@ import sys
 
 import pandas as pd
 
-sys.path.append("/path/to/ad_diffusion")
+sys.path.append("/path/to/Kumo-Anomaly")
 from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 
 df = pd.read_csv("your_data.csv")
 
 # Perform anomaly detection — omit model_path/model_config_path to auto-download
-# the pretrained weights from Hugging Face (nvidia/nv-tesseract-ad-diffusion).
+# the pretrained weights from Hugging Face (nvidia/Kumo-Anomaly).
 results = perform_anomaly_analysis_with_diffusion(
     df=df,
     threshold_strategy="scs",  # or "macs"
@@ -68,9 +68,18 @@ results = perform_anomaly_analysis_with_diffusion(
     # model_config_path="path/to/config.yaml",     # optional; defaults to curriculum_medium.yaml
     nsample=15,
     sdk_config="path/to/sdk_config.yaml",
+    feature_embedding_mode="shared_mean_norm_matched_zero_pad",  # or "positional"
 )
 print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
+
+`feature_embedding_mode` defaults to `shared_mean_norm_matched_zero_pad`, which
+shares a norm-matched checkpoint embedding across active features and zeros only
+SDK-identified padding positions. Use `positional` to retain the checkpoint's
+original position-specific feature embeddings.
+
+The same embedding mode is used for the original inference and every repair
+re-scoring pass when reconstruction diagnosis is enabled.
 
 `ADDiffusionConfig` remains available when configuration must be constructed
 programmatically instead of loaded from YAML:
@@ -126,7 +135,7 @@ from sdk.reporting import generate_anomaly_detection_report
 
 generate_anomaly_detection_report(
     results,
-    "output/pdf/anomaly_detection_report.pdf",
+    "output/pdf/kumo-anomaly-report.pdf",
 )
 ```
 
@@ -135,9 +144,9 @@ The standalone reporter auto-detects common timestamp and ground-truth names
 
 ## Pretrained Weights
 
-The pretrained Tesseract AD Diffusion model is hosted on Hugging Face:
+The pretrained Kumo-Anomaly model is hosted on Hugging Face:
 
-- **Repository**: [`nvidia/nv-tesseract-ad-diffusion`](https://huggingface.co/nvidia/nv-tesseract-ad-diffusion)
+- **Repository**: [`nvidia/Kumo-Anomaly`](https://huggingface.co/nvidia/Kumo-Anomaly)
 - **Checkpoint**: `final_model.pth`
 - **Config**: `curriculum_medium.yaml`
 
@@ -167,7 +176,7 @@ uv run python examples/quick_example.py --download-weights
 
 ### Hugging Face authentication
 
-Weights are published on the public [`nvidia/nv-tesseract-ad-diffusion`](https://huggingface.co/nvidia/nv-tesseract-ad-diffusion) repository and download without authentication. If a download fails with `401`/`403`, accept the model license on the repo page or authenticate before retrying:
+Weights are published on the public [`nvidia/Kumo-Anomaly`](https://huggingface.co/nvidia/Kumo-Anomaly) repository and download without authentication. If a download fails with `401`/`403`, accept the model license on the repo page or authenticate before retrying:
 
 ```bash
 # Option A: interactive login (writes ~/.cache/huggingface/token)
@@ -192,8 +201,8 @@ license on the repo page and, if needed, log in with a Hugging Face token:
 
 ### From Source
 ```bash
-# Clone or download the ad_diffusion directory
-cd ad_diffusion
+# Clone or download the Kumo-Anomaly directory
+cd Kumo-Anomaly
 
 # Install dependencies
 uv sync
@@ -217,7 +226,7 @@ uv run ruff check .
 ## Package Structure
 
 ```
-ad_diffusion/
+Kumo-Anomaly/
 ├── sdk/                        # Main inference functions
 │   ├── anomaly_analysis.py     # Main API function
 │   ├── explainability.py       # Reconstruction-error contribution explanations
@@ -255,7 +264,7 @@ Supports both synthetic datasets (auto-generated with ground truth) and custom C
 Run the included example to get started:
 
 ```bash
-cd ad_diffusion
+cd Kumo-Anomaly
 uv run python examples/quick_example.py --help
 
 # Auto-downloads final_model.pth + curriculum_medium.yaml from Hugging Face
@@ -276,7 +285,7 @@ uv run python examples/quick_example.py --dataset-path data.csv --model-path mod
 ```
 
 This example demonstrates:
-- Auto-downloading pretrained weights from Hugging Face (`nvidia/nv-tesseract-ad-diffusion`)
+- Auto-downloading pretrained weights from Hugging Face (`nvidia/Kumo-Anomaly`)
 - Loading time series data (synthetic generation or custom CSV files)
 - Running anomaly detection with diffusion models
 - Applying adaptive thresholding (SCS/MACS)
@@ -285,7 +294,7 @@ This example demonstrates:
 
 ## Fine-tuning
 
-Use `examples/finetune_example.py` to fine-tune AD Diffusion on normal windows from your own data. The CSV should contain mostly normal behavior. Numeric feature columns are used for training; use `--timestamp-col`, `--label-col`, and `--drop-cols` to remove metadata columns from the feature matrix.
+Use `examples/finetune_example.py` to fine-tune Kumo-Anomaly on normal windows from your own data. The CSV should contain mostly normal behavior. Numeric feature columns are used for training; use `--timestamp-col`, `--label-col`, and `--drop-cols` to remove metadata columns from the feature matrix.
 
 ```bash
 uv run python examples/finetune_example.py \
@@ -351,6 +360,9 @@ Core dependencies (see `pyproject.toml` for exact versions):
 - scikit-learn (for PCA and normalization)
 - PyYAML (for configuration files)
 - tqdm (for progress bars)
+- psutil (for system resource information)
+- huggingface_hub (for model downloads)
+- matplotlib (for PDF reports)
 
 Development dependencies:
 - pytest (testing)
@@ -366,7 +378,7 @@ The main entry point is the `perform_anomaly_analysis_with_diffusion` function:
 
 ```python
 import sys, os
-sys.path.append('/path/to/ad_diffusion')
+sys.path.append('/path/to/Kumo-Anomaly')
 from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 ```
 
@@ -374,9 +386,9 @@ from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 
 - **df** (pd.DataFrame): Input time series data (all columns must be numeric)
 - **threshold_strategy** (str): "scs" or "macs" for adaptive thresholding
-- **model_path** (str|Path, optional): Path to the NV-Tesseract AD diffusion model checkpoint.
+- **model_path** (str|Path, optional): Path to the Kumo-Anomaly model checkpoint.
   If omitted or the file doesn't exist, `final_model.pth` is auto-downloaded from
-  `nvidia/nv-tesseract-ad-diffusion` on Hugging Face.
+  `nvidia/Kumo-Anomaly` on Hugging Face.
 - **config_path** (str|Path, optional): Path to the model config YAML. If omitted
   or missing, `curriculum_medium.yaml` is auto-downloaded from the same repo.
 - **nsample** (int): Number of diffusion samples (default: 15)
@@ -391,7 +403,7 @@ For direct access to inference functions:
 
 ```python
 import sys, os
-sys.path.append('/path/to/ad_diffusion')
+sys.path.append('/path/to/Kumo-Anomaly')
 from sdk.inference_ad import inference_ad_tesseract2, inference_ad_tesseract2_mp
 
 # Single GPU inference (auto-downloads weights if needed)
@@ -450,8 +462,8 @@ python examples/quick_example.py
 If you get import errors, ensure the path is added correctly:
 ```python
 import sys, os
-# Adjust this path to where you installed ad_diffusion
-sys.path.append('/full/path/to/ad_diffusion')
+# Adjust this path to where you installed Kumo-Anomaly
+sys.path.append('/full/path/to/Kumo-Anomaly')
 ```
 
 ### CUDA Issues
@@ -483,10 +495,10 @@ export HUGGINGFACE_HUB_TOKEN="hf_xxx"
 ```
 
 Then accept the model license on the repo page if prompted:
-<https://huggingface.co/nvidia/nv-tesseract-ad-diffusion>
+<https://huggingface.co/nvidia/Kumo-Anomaly>
 
 If downloads consistently fail with network errors, you can pre-fetch the files
-manually with `huggingface-cli download nvidia/nv-tesseract-ad-diffusion
+manually with `huggingface-cli download nvidia/Kumo-Anomaly
 final_model.pth curriculum_medium.yaml --local-dir .` and then pass the local
 paths explicitly via `model_path=`/`config_path=`.
 

@@ -1,17 +1,17 @@
-# Contributing to NV-Tesseract
+# Contributing to Kumo-TS
 
 Thank you for your interest in this project.
 
 ## Issues
 
-We track bugs, feature requests, and questions in **[GitHub Issues](https://github.com/NVIDIA/NV-Tesseract/issues)**.
+We track bugs, feature requests, and questions in **[GitHub Issues](https://github.com/NVIDIA/Kumo-TS/issues)**.
 
 1. **Search first** — Check open and recently closed issues for duplicates before opening a new one.
 2. **Security** — Do **not** file security vulnerabilities as public issues. Follow [`SECURITY.md`](SECURITY.md) instead.
 3. **Choose a clear title** — Summarize the problem or request in a few words (for example, “Forecasting: error when `context_df` has extra columns”).
 4. **Describe the context** — In the body, include at least:
-   - **Area:** `forecasting`, `ad_diffusion`, or other (for example, `scripts`, `CI`, documentation).
-   - **Environment:** OS, Python version, and how you installed the package (`uv`, `pip`, editable install, and which subproject: `forecasting` or `ad_diffusion`).
+   - **Area:** `Kumo-Forecast`, `Kumo-Anomaly`, or other (for example, `scripts`, `CI`, documentation).
+   - **Environment:** OS, Python version, and how you installed the package (`uv`, `pip`, editable install, and which subproject: `Kumo-Forecast` or `Kumo-Anomaly`).
    - **What you expected** vs **what happened** (for bugs), or **use case and proposed behavior** (for features).
 5. **Reproducible bugs** — For defects, add a **minimal** code snippet, sample data (or steps to generate it), and the full error message or traceback. If the issue is version-specific, state the package and dependency versions (for example, from `uv pip freeze` in your environment).
 6. **Link from pull requests** — If a change fixes or implements an issue, reference it in the PR description with `Fixes #123` or `Closes #123` (or `Refs #123` for partial work) so the record stays connected.
@@ -120,6 +120,6 @@ Contributions consisting of commits without a valid sign-off cannot be merged.
 
 - Install dependencies with **[uv](https://docs.astral.sh/uv/)** per the top-level [`README.md`](README.md).
 - Lint and format (Ruff): `make lint` / `make lint-fix` from the repository root.
-- Forecasting tests (example): `cd forecasting && uv run pytest sdk/tests`.
+- Forecasting tests (example): `cd Kumo-Forecast && uv run pytest sdk/tests`.
 
 Open a pull request against `dev` with a clear description of the change and any relevant issue references.

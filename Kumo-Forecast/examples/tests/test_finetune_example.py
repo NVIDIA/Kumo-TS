@@ -11,7 +11,7 @@ def make_args(**overrides) -> SimpleNamespace:
         "ckpt_init": "auto",
         "use_cross_channel": False,
         "standardizer_init": "standardizer.pkl",
-        "repo_id": "nvidia/nv-tesseract-forecasting",
+        "repo_id": "nvidia/Kumo-Forecast",
     }
     args.update(overrides)
     return SimpleNamespace(**args)
@@ -43,7 +43,7 @@ def test_resolve_checkpoint_init_downloads_standard_checkpoint(monkeypatch):
         {
             "standardizer_pkl": "standardizer.pkl",
             "ckpt": finetune_example.CHECKPOINT_BASE,
-            "repo_id": "nvidia/nv-tesseract-forecasting",
+            "repo_id": "nvidia/Kumo-Forecast",
         }
     ]
 

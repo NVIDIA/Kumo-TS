@@ -1,6 +1,6 @@
 # Datasets Directory
 
-This directory contains sample datasets and examples for AD Diffusion.
+This directory contains sample datasets and examples for Kumo-Anomaly.
 
 **Supports both synthetic datasets (auto-generated with ground truth) and custom CSV files.** Use `--dataset-path` to specify your own data.
 
@@ -8,7 +8,7 @@ This directory contains sample datasets and examples for AD Diffusion.
 
 - **`sample_timeseries.csv`**: Synthetic time series data for testing (auto-generated)
 - **`sample_timeseries_labels.csv`**: Ground truth labels for evaluation (auto-generated)
-- **`anomaly_results.csv`**: Results from running anomaly detection (auto-generated)
+- **`kumo-anomaly-results.csv`**: Results from running anomaly detection (auto-generated)
 - **`test-dataset.csv`**: Example dataset for testing
 
 ## Usage
@@ -21,7 +21,7 @@ Auto-generated datasets with ground truth labels are automatically created when 
 uv run python quick_example.py --create-dataset-only
 
 # Run full example; pretrained weights auto-download from Hugging Face
-# (nvidia/nv-tesseract-ad-diffusion) if they aren't already in the CWD.
+# (nvidia/Kumo-Anomaly) if they aren't already in the CWD.
 uv run python quick_example.py
 
 # Or point at a checkpoint you already have locally
@@ -130,7 +130,7 @@ from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 df = pd.read_csv("your_data.csv")
 
 # Omit model_path to auto-download the pretrained weights from
-# Hugging Face (nvidia/nv-tesseract-ad-diffusion) on first run.
+# Hugging Face (nvidia/Kumo-Anomaly) on first run.
 results = perform_anomaly_analysis_with_diffusion(
     df=df,
     threshold_strategy="scs",
@@ -146,4 +146,4 @@ results = perform_anomaly_analysis_with_diffusion(
 - **No ground truth**: Custom datasets don't include anomaly labels
 - **Evaluation metrics**: Precision, recall, and F1-score won't be calculated
 - **Results**: You'll get anomaly scores (MAE) and binary anomaly flags
-- **Output**: Results are saved to `anomaly_results.csv`
+- **Output**: Results are saved to `kumo-anomaly-results.csv`

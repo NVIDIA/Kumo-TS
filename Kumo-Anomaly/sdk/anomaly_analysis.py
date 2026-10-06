@@ -17,6 +17,7 @@ import yaml
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sdk.explainability import explain_reconstruction_anomalies
 from sdk.inference_ad import (
+    DEFAULT_FEATURE_EMBEDDING_MODE,
     DEFAULT_SEED,
     _resolve_model_paths,
     get_model_target_dim,
@@ -54,7 +55,7 @@ class ADDiffusionConfig:
     report_path: str | Path | None = None
     timestamp_column: str | None = None
     ground_truth_column: str | None = None
-    report_title: str = "Anomaly Detection Report"
+    report_title: str = "Kumo-Anomaly Report"
     report_explanation_csv_path: str | Path | None = None
     report_max_pages: int = 10
     report_consolidated_top_k: int = 5
@@ -108,14 +109,15 @@ def perform_anomaly_analysis_with_diffusion(
     nsample: int = 15,
     preprocess_model_dir: str | Path | None = None,
     sdk_config: ADDiffusionConfig | str | Path | None = None,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> pd.DataFrame:
     """
-    Perform anomaly analysis using Tesseract AD Diffusion Model.
+    Perform anomaly analysis using Kumo-Anomaly Model.
 
     If ``model_path``/``model_config_path`` do not exist locally, the default weights
     (``final_model.pth`` + ``curriculum_medium.yaml``) are automatically
     downloaded from the Hugging Face repository
-    ``nvidia/nv-tesseract-ad-diffusion``.
+    ``nvidia/Kumo-Anomaly``.
 
     Args:
         df: DataFrame containing numeric data
@@ -131,6 +133,10 @@ def perform_anomaly_analysis_with_diffusion(
             This requires ``explain=True`` and performs four additional model
             inference passes. Raw per-hypothesis scores are not returned.
             See `ADDiffusionConfig` for the full field reference.
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
 
     Returns:
         DataFrame with original data and anomaly detection results
@@ -209,6 +215,7 @@ def perform_anomaly_analysis_with_diffusion(
         config_path=resolved_config,
         nsample=nsample,
         preprocess_model_dir=str(preprocess_model_dir) if preprocess_model_dir else None,
+        feature_embedding_mode=feature_embedding_mode,
     )
 
     # Extract residual scores (MAE) from results
@@ -329,6 +336,7 @@ def perform_anomaly_analysis_with_diffusion(
                     nsample=nsample,
                     preprocess_model_dir=None,
                     seed=DEFAULT_SEED,
+                    feature_embedding_mode=feature_embedding_mode,
                 )
                 repaired_scores[hypothesis] = np.asarray(repaired_result["residual"], dtype=float)[:original_length]
 

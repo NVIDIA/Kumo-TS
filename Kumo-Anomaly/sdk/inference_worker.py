@@ -58,7 +58,14 @@ def main():
     preprocess_model_dir = args["preprocess_model_dir"]
     use_dpm_solver = args.get("use_dpm_solver", False)  # NEW: Extract DPM parameters
     dpm_steps = args.get("dpm_steps", 20)  # NEW: Extract DPM parameters
+    feature_embedding_mode = args.get(
+        "feature_embedding_mode",
+        "shared_mean_norm_matched_zero_pad",
+    )
     valid_feature_mask = args.get("valid_feature_mask")
+    num_active_features = args.get("num_active_features")
+    if num_active_features is None and valid_feature_mask is not None:
+        num_active_features = sum(bool(value) for value in valid_feature_mask)
 
     try:
         # NOW import torch - after CUDA_VISIBLE_DEVICES is already set
@@ -67,7 +74,7 @@ def main():
         import numpy as np
         import torch
 
-        # Add path to find modules in the ad_diffusion directory
+        # Add path to find modules in the Kumo-Anomaly directory
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
         from models.main_model import TSDiffuser_Generic
@@ -109,6 +116,8 @@ def main():
             device=device,
             target_dim=target_dim,
             ratio=0.7,
+            feature_embedding_mode=feature_embedding_mode,
+            num_active_features=num_active_features,
         )
         if isinstance(checkpoint, dict) and "model" in checkpoint:
             model.load_state_dict(checkpoint["model"])

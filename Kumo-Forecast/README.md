@@ -1,6 +1,6 @@
-# NV-Tesseract Forecasting
+# Kumo-Forecast
 
-Tesseract Forecasting Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting.
+Kumo-Forecast Model that learns universal representations from diverse temporal data using self-supervised pretraining for forecasting.
 
 ## Quick Start with UV
 
@@ -17,14 +17,14 @@ pip install uv
 ### 2. Set Up the Project
 
 ```bash
-cd forecasting/
+cd Kumo-Forecast/
 uv sync --group dev
 uv pip install -e .  # Install package in editable mode for clean imports
 ```
 
 ### 3. Run Forecasting
 
-The model weights are published on Hugging Face (`nvidia/nv-tesseract-forecasting`) and download automatically on first use — no authentication required:
+The model weights are published on Hugging Face (`nvidia/Kumo-Forecast`) and download automatically on first use — no authentication required:
 
 ```python
 import pandas as pd
@@ -68,7 +68,7 @@ uv run python sdk/quick_example.py
 
 ## Fine-tuning
 
-Use `examples/finetune_example.py` to fine-tune NV-Tesseract on your own forecasting data. The CSV must include a timestamp column and one or more numeric target columns. By default, the script auto-downloads the published NV-Tesseract forecasting checkpoint, freezes the pretrained encoder/embedder, and trains the forecasting head. Pass `--ckpt-init none` if you want to train a fresh head from the base backbone instead.
+Use `examples/finetune_example.py` to fine-tune Kumo-TS on your own forecasting data. The CSV must include a timestamp column and one or more numeric target columns. By default, the script auto-downloads the published Kumo-Forecast checkpoint, freezes the pretrained encoder/embedder, and trains the forecasting head. Pass `--ckpt-init none` if you want to train a fresh head from the base backbone instead.
 
 ```bash
 uv run python examples/finetune_example.py \
@@ -148,7 +148,7 @@ source .venv/bin/activate  # Activate environment (Unix)
 ## Project Structure
 
 ```
-forecasting/
+Kumo-Forecast/
 ├── pyproject.toml                    # Project configuration and dependencies
 ├── README.md                         # This file
 ├── examples/
@@ -175,7 +175,11 @@ forecasting/
 - `numpy>=1.24.0` - Numerical computing
 - `torch>=2.7.0` - Deep learning framework
 - `tqdm>=4.65.0` - Progress bars
-- `huggingface_hub>=0.17.0` - For downloading model weights
+- `huggingface_hub>=0.22.0` - For downloading model weights
+
+- `transformers>=4.36.0` - Transformer utilities
+- `pyyaml>=6.0,<7` - YAML configuration
+- `pytest-xdist>=3.8.0` - Parallel test execution (currently declared as a runtime dependency)
 
 ### Development Dependencies
 - `pytest>=9.0.2` - Testing framework
@@ -199,7 +203,7 @@ The project uses `pyproject.toml` for configuration:
 ## Model Weights
 
 The forecasting model requires pre-trained weights from the Hugging Face repository:
-- Repository: [`nvidia/nv-tesseract-forecasting`](https://huggingface.co/nvidia/nv-tesseract-forecasting) (auto-downloaded on first use; no authentication required)
+- Repository: [`nvidia/Kumo-Forecast`](https://huggingface.co/nvidia/Kumo-Forecast) (auto-downloaded on first use; no authentication required)
 - Required files (auto-downloaded to current directory):
   - `standardizer.pkl` - Data normalization parameters
   - `moment_head_512_6hr.pt` - Model checkpoint for standard 6-hour forecasting (standard forecasting only)
@@ -209,7 +213,7 @@ The forecasting model requires pre-trained weights from the Hugging Face reposit
 
 Modern deep-learning forecasters predict but don't explain — they can't answer questions like *"Why did the model predict a spike tomorrow at 3pm?"* or *"Is it relying on a real pattern, or on noise?"*. Time-series explanations need to preserve temporal continuity, resolve individual forecast horizons, and work with the latent representations used by modern forecasters.
 
-NV-Tesseract ships a **Model Agnostic Interpretability Framework** that produces localized, horizon-specific, time-aware explanations without modifying the underlying forecaster. It targets real-world deployments — finance risk, energy grids, manufacturing — where a black-box prediction is not enough.
+Kumo-TS ships a **Model Agnostic Interpretability Framework** that produces localized, horizon-specific, time-aware explanations without modifying the underlying forecaster. It targets real-world deployments — finance risk, energy grids, manufacturing — where a black-box prediction is not enough.
 
 ### The Lag–Horizon Attribution Engine (v1)
 
@@ -223,7 +227,7 @@ Internally `F` is computed by composing the model's consecutive flow operators a
 
 ### Feature-Axis Interpretability (multivariate)
 
-For multivariate inputs (`C > 1` channels), NV-Tesseract also decomposes how each input channel contributes to each forecast horizon. The SDK uses the batched Jacobian estimator automatically and adds the channel-by-horizon artifacts to its report.
+For multivariate inputs (`C > 1` channels), Kumo-TS also decomposes how each input channel contributes to each forecast horizon. The SDK uses the batched Jacobian estimator automatically and adds the channel-by-horizon artifacts to its report.
 
 The estimator batches channel probes and transitions on the selected device. See `sdk/quick_example.py` and `sdk/README.md` for the SDK report path.
 
@@ -348,7 +352,7 @@ If you see stale environment errors referring to an old backbone package:
 - Make sure `tool.hatch.metadata.allow-direct-references = true` is set
 
 ### Model Weight Download Issues
-1. Verify the repository is reachable: `nvidia/nv-tesseract-forecasting`
+1. Verify the repository is reachable: `nvidia/Kumo-Forecast`
 2. Check network connectivity
 3. If you see a `401`/`403` error, accept the model license on the Hugging Face repo page or authenticate: `huggingface-cli login`
 

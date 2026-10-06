@@ -87,6 +87,8 @@ def test_perform_anomaly_analysis_with_scs_strategy(monkeypatch, numeric_df, inf
     assert kwargs["model_path"] == "model.pth"
     assert kwargs["config_path"] == "config.yaml"
     assert kwargs["nsample"] == 7
+    assert kwargs["feature_embedding_mode"] == "shared_mean_norm_matched_zero_pad"
+    mock_thresholder.detect_anomalies.assert_called_once()
     detector_scores, detector_target = mock_thresholder.detect_anomalies.call_args.args
     np.testing.assert_array_equal(detector_scores, inference_results["residual"])
     np.testing.assert_array_equal(detector_target, inference_results["target"])
@@ -471,7 +473,8 @@ sdk:
     assert destination.read_bytes().startswith(b"%PDF")
 
 
-def test_reconstruction_diagnosis_is_opt_in_and_hides_raw_scores(monkeypatch, numeric_df):
+@pytest.mark.parametrize("feature_embedding_mode", ["shared_mean_norm_matched_zero_pad", "positional"])
+def test_reconstruction_diagnosis_is_opt_in_and_hides_raw_scores(monkeypatch, numeric_df, feature_embedding_mode):
     """Diagnosis should return only simplified metrics after four repair passes."""
     original = {
         "residual": np.array([0.1, 0.5, 0.2, 0.3, 0.1]),
@@ -496,9 +499,13 @@ def test_reconstruction_diagnosis_is_opt_in_and_hides_raw_scores(monkeypatch, nu
         model_path="model.pth",
         model_config_path="config.yaml",
         sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, diagnose_reconstruction=True),
+        feature_embedding_mode=feature_embedding_mode,
     )
 
     assert mock_inference.call_count == 5
+    assert all(
+        call.kwargs["feature_embedding_mode"] == feature_embedding_mode for call in mock_inference.call_args_list
+    )
     assert result.loc[1, "LikelyReconstructionIssue"] == "Level shift"
     assert result.loc[1, "RepairImpact"] == pytest.approx(0.8)
     assert result.loc[1, "DiagnosticConfidence"] == "High"
