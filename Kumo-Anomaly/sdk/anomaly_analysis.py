@@ -275,13 +275,25 @@ def perform_anomaly_analysis_with_diffusion(
 
         target_feature_count = target_for_explanation.shape[1] if target_for_explanation.ndim > 1 else 1
         input_feature_count = len(input_df.columns)
-        directly_mapped = preprocess_model_dir is None and input_feature_count <= target_feature_count
-        if directly_mapped and valid_feature_mask is not None:
+        saved_feature_names = results.get("feature_names")
+        if saved_feature_names is not None:
+            feature_names = [str(feature_name) for feature_name in saved_feature_names]
+            missing_features = [feature_name for feature_name in feature_names if feature_name not in input_df.columns]
+            if missing_features:
+                raise ValueError(f"Inference feature_names are missing from the input data: {missing_features}.")
+            if valid_feature_mask is not None:
+                target_for_explanation = target_for_explanation[:, valid_feature_mask]
+                reconstruction_for_explanation = reconstruction_for_explanation[:, valid_feature_mask]
+            feature_indices = None
+            directly_mapped = True
+        else:
+            directly_mapped = preprocess_model_dir is None and input_feature_count <= target_feature_count
+        if saved_feature_names is None and directly_mapped and valid_feature_mask is not None:
             target_for_explanation = target_for_explanation[:, valid_feature_mask]
             reconstruction_for_explanation = reconstruction_for_explanation[:, valid_feature_mask]
             feature_names = list(input_df.columns)
             feature_indices = None
-        else:
+        elif saved_feature_names is None:
             feature_names = list(input_df.columns) if directly_mapped else None
             feature_indices = list(range(input_feature_count)) if directly_mapped else None
         explanations = explain_reconstruction_anomalies(

@@ -143,6 +143,80 @@ def test_threshold_and_explanation_exclude_padded_dimensions(monkeypatch):
     assert result.loc[0, "ExplanationCoverage"] == pytest.approx(1.0)
 
 
+def test_explanations_use_saved_training_order_for_reordered_serving_columns(monkeypatch):
+    input_df = pd.DataFrame(
+        {
+            "sensor_b": [2.0, 3.0, 4.0, 5.0, 6.0],
+            "sensor_a": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    target = np.zeros((5, 2))
+    reconstruction = np.zeros_like(target)
+    reconstruction[0] = [5.0, 1.0]
+    results = {
+        "residual": np.array([3.0, 0.0, 0.0, 0.0, 0.0]),
+        "target": target,
+        "recon": reconstruction,
+        "valid_feature_mask": np.array([True, True]),
+        "feature_names": ["sensor_a", "sensor_b"],
+    }
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=results))
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([True, False, False, False, False])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, explanation_top_k=1),
+    )
+
+    assert json.loads(result.loc[0, "TopContributors"]) == ["sensor_a"]
+
+
+def test_explanations_ignore_extra_serving_columns_with_saved_schema(monkeypatch):
+    input_df = pd.DataFrame(
+        {
+            "sensor_b": [2.0, 3.0, 4.0, 5.0, 6.0],
+            "numeric_label": [0, 1, 0, 1, 0],
+            "sensor_a": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    target = np.zeros((5, 4))
+    reconstruction = np.zeros_like(target)
+    reconstruction[0] = [5.0, 1.0, 100.0, 100.0]
+    results = {
+        "residual": np.array([3.0, 0.0, 0.0, 0.0, 0.0]),
+        "target": target,
+        "recon": reconstruction,
+        "valid_feature_mask": np.array([True, True, False, False]),
+        "feature_names": ["sensor_a", "sensor_b"],
+    }
+    monkeypatch.setattr(anomaly_analysis, "get_model_target_dim", lambda *_args: 4)
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=results))
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([True, False, False, False, False])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, explanation_top_k=2),
+    )
+
+    threshold_target = mock_thresholder.detect_anomalies.call_args.args[1]
+    np.testing.assert_array_equal(threshold_target, target[:, :2])
+    assert json.loads(result.loc[0, "TopContributors"]) == ["sensor_a", "sensor_b"]
+
+
 def test_perform_anomaly_analysis_rejects_non_numeric_columns(numeric_df):
     mixed_df = numeric_df.copy()
     mixed_df["machine_id"] = ["a", "b", "c", "d", "e"]
