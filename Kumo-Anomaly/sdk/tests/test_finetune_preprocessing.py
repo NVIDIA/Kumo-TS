@@ -71,6 +71,18 @@ def test_checkpoint_transform_exactly_replays_pca_with_reordered_and_extra_colum
     assert replayed.shape == (len(serving), 3)
 
 
+def test_checkpoint_transform_uses_identical_pca_arithmetic_for_large_offsets() -> None:
+    rng = np.random.default_rng(42)
+    train = (1e6 + rng.normal(size=(64, 5))).astype(np.float32)
+    serving = (1e6 + rng.normal(size=(8, 5))).astype(np.float32)
+
+    adapter = FeatureAdapter(target_dim=3, scale_factor=20.0, seed=42)
+    adapter.fit(train)
+    restored = FeatureAdapter.from_metadata(adapter.metadata())
+
+    assert torch.equal(adapter.transform(serving), restored.transform(serving))
+
+
 def test_metadata_replay_matches_fitted_adapter_across_dimension_modes() -> None:
     for input_dim, target_dim in ((2, 4), (4, 4), (7, 3)):
         for seed in range(5):
@@ -248,6 +260,7 @@ def test_public_inference_automatically_uses_checkpoint_transform(monkeypatch) -
     assert captured["num_active_features"] == 2
     assert np.array_equal(captured["valid_feature_mask"], np.array([True, True, False, False]))
     assert result["target_dim"] == 4
+    assert result["feature_names"] == ["sensor_a", "sensor_b"]
 
 
 def test_public_inference_without_metadata_keeps_generic_preprocessing(monkeypatch) -> None:

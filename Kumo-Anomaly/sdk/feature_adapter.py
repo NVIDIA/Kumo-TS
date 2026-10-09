@@ -47,9 +47,10 @@ class FeatureAdapter:
                     f"PCA needs at least target_dim rows; got {data.shape[0]} rows for target_dim={self.target_dim}."
                 )
             self.pca = PCA(n_components=self.target_dim, random_state=self.seed)
-            data = self.pca.fit_transform(data)
+            self.pca.fit(data)
             self.pca_components_ = np.asarray(self.pca.components_)
             self.pca_mean_ = np.asarray(self.pca.mean_)
+            data = self._project_pca(data)
         elif self.input_dim < self.target_dim:
             data = self._pad(data)
 
@@ -65,10 +66,8 @@ class FeatureAdapter:
         if data.shape[1] != self.input_dim:
             raise ValueError(f"Expected {self.input_dim} input features, got {data.shape[1]}.")
 
-        if self.pca is not None:
-            data = self.pca.transform(data)
-        elif self.pca_components_ is not None and self.pca_mean_ is not None:
-            data = (data - self.pca_mean_) @ self.pca_components_.T
+        if self.uses_pca:
+            data = self._project_pca(data)
         elif self.input_dim < self.target_dim:
             data = self._pad(data)
 
@@ -155,6 +154,11 @@ class FeatureAdapter:
     def _pad(self, data: np.ndarray) -> np.ndarray:
         pad_width = self.target_dim - data.shape[1]
         return np.pad(data, ((0, 0), (0, pad_width)), mode="constant", constant_values=0.0)
+
+    def _project_pca(self, data: np.ndarray) -> np.ndarray:
+        if self.pca_components_ is None or self.pca_mean_ is None:
+            raise RuntimeError("Fitted PCA state is unavailable.")
+        return (data - self.pca_mean_) @ self.pca_components_.T
 
     @staticmethod
     def _validate_array(data: np.ndarray) -> np.ndarray:

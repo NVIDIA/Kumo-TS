@@ -649,6 +649,15 @@ def _get_checkpoint_preprocessing(checkpoint: object) -> dict | None:
     return preprocessing if isinstance(preprocessing, dict) and preprocessing else None
 
 
+def _get_checkpoint_feature_names(checkpoint: object) -> list[str] | None:
+    """Return saved names only when model dimensions map directly to input features."""
+    preprocessing = _get_checkpoint_preprocessing(checkpoint)
+    if preprocessing is None or bool(preprocessing.get("uses_pca", False)):
+        return None
+    columns = preprocessing.get("columns")
+    return list(columns) if columns else None
+
+
 def _get_finetune_window_settings(
     preprocessing: dict,
     checkpoint: dict,
@@ -1250,6 +1259,7 @@ def inference_ad_tesseract2(
             - target_dim: Target dimension used by the model
             - valid_feature_mask: Model dimensions included in residual scores
             - score_feature_count: Number of dimensions included in scores
+            - feature_names: Saved training feature names when dimensions map directly
             - feature_embedding_mode: Feature-embedding mode used for inference
 
     Note:
@@ -1277,7 +1287,9 @@ def inference_ad_tesseract2(
     )
     if checkpoint_data is not None:
         preprocessed, window_length, split, _, valid_feature_mask = checkpoint_data
+        feature_names = _get_checkpoint_feature_names(checkpoint)
     else:
+        feature_names = None
         valid_feature_mask = _score_feature_mask_for_dataframe(
             data,
             target_dim,
@@ -1329,6 +1341,8 @@ def inference_ad_tesseract2(
     # Add target_dim to results
     results["target_dim"] = target_dim
     results["feature_embedding_mode"] = feature_embedding_mode
+    if feature_names is not None:
+        results["feature_names"] = feature_names
 
     return results
 
@@ -1440,7 +1454,9 @@ def inference_ad_tesseract2_mp(
     )
     if checkpoint_data is not None:
         preprocessed, window_length, split, scale_factor, valid_feature_mask = checkpoint_data
+        feature_names = _get_checkpoint_feature_names(checkpoint)
     else:
+        feature_names = None
         preprocessed = preprocess_dataframe(
             data,
             target_dim,
@@ -1532,6 +1548,8 @@ def inference_ad_tesseract2_mp(
 
         results = _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
         results["feature_embedding_mode"] = feature_embedding_mode
+        if feature_names is not None:
+            results["feature_names"] = feature_names
         return results
     finally:
         _cleanup_shared_memory(shm_info)
