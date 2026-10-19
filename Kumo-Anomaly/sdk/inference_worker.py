@@ -56,7 +56,6 @@ def main():
     seed = args["seed"]
     deterministic = args["deterministic"]
     preprocess_model_dir = args["preprocess_model_dir"]
-    use_dpm_solver = args.get("use_dpm_solver", False)  # NEW: Extract DPM parameters
     dpm_steps = args.get("dpm_steps", 20)  # NEW: Extract DPM parameters
     feature_embedding_mode = args.get(
         "feature_embedding_mode",
@@ -89,8 +88,7 @@ def main():
         worker_logger.debug("Worker STARTED at %.2f", start_time)
 
         # NEW: Log DPM usage
-        if use_dpm_solver:
-            worker_logger.debug("Using DPM-Solver with %d steps", dpm_steps)
+        worker_logger.debug("Using DPM-Solver with %d steps", dpm_steps)
 
         if deterministic:
             os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -158,7 +156,6 @@ def main():
                 loader1,
                 loader2,
                 nsample=nsample,
-                use_dpm_solver=use_dpm_solver,  # NEW: Pass DPM parameters
                 dpm_steps=dpm_steps,  # NEW: Pass DPM parameters
                 window_seeds=[seed + window_index for window_index in data_chunk["window_indices"]]
                 if isinstance(data_chunk, dict) and data_chunk.get("window_shm")

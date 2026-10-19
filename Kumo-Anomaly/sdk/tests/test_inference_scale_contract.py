@@ -88,6 +88,10 @@ def test_training_and_evaluation_present_the_same_conditioning_scale_to_denoiser
 
     model.process_data = MethodType(process_data, model)
     model.get_side_info = MethodType(lambda _self, *_args: side_info, model)
+    model.num_steps = 20
+    model.beta = torch.linspace(0.0001, 0.02, model.num_steps)
+    model.alpha_hat = 1 - model.beta
+    model.alpha = torch.cumprod(model.alpha_hat, dim=0)
     model.evaluate({}, n_samples=1)
 
     training_conditioning = recorder.inputs[0][:, 0]
@@ -99,7 +103,7 @@ def test_training_and_evaluation_present_the_same_conditioning_scale_to_denoiser
 @pytest.mark.parametrize(
     ("evaluate_name", "impute_name"),
     [
-        ("evaluate", "impute"),
+        ("evaluate", "dpm_solver_impute"),
         ("evaluate_with_dpm", "dpm_solver_impute"),
     ],
 )

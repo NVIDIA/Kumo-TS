@@ -93,7 +93,6 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
         "seed": 7,
         "deterministic": False,
         "preprocess_model_dir": None,
-        "use_dpm_solver": False,
         "dpm_steps": 20,
         "num_active_features": 3,
         "valid_feature_mask": [True, True, True, False],
@@ -119,7 +118,7 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
 
     fake_shm = FakeSharedMemory("fake-shm")
 
-    def fake_evaluate(model, loader1, loader2, nsample, use_dpm_solver, dpm_steps, window_seeds, valid_feature_mask):
+    def fake_evaluate(model, loader1, loader2, nsample, dpm_steps, window_seeds, valid_feature_mask):
         events.append(
             (
                 "evaluate",
@@ -127,7 +126,6 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
                 loader1,
                 loader2,
                 nsample,
-                use_dpm_solver,
                 dpm_steps,
                 window_seeds,
                 valid_feature_mask,
@@ -165,7 +163,7 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
     assert captured_model_kwargs["num_active_features"] == 3
     assert events == [
         ("loaders", False, (2, 3, 4), 32, 4, (0, 1)),
-        ("evaluate", False, ["loader1"], ["loader2"], 5, False, 20, [7, 8], [True, True, True, False]),
+        ("evaluate", False, ["loader1"], ["loader2"], 5, 20, [7, 8], [True, True, True, False]),
         "close",
     ]
     assert fake_shm.closed is True
@@ -187,7 +185,7 @@ def test_worker_closes_shared_memory_when_evaluate_fails(monkeypatch, tmp_path):
 
     fake_shm = FakeSharedMemory("fake-shm")
 
-    def fake_evaluate(model, loader1, loader2, nsample, use_dpm_solver, dpm_steps, window_seeds, valid_feature_mask):
+    def fake_evaluate(model, loader1, loader2, nsample, dpm_steps, window_seeds, valid_feature_mask):
         events.append(("evaluate", fake_shm.closed))
         raise RuntimeError("boom")
 
