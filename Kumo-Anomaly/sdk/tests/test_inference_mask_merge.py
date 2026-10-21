@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -25,9 +24,6 @@ class ComplementaryMaskModel:
 
     def eval(self) -> ComplementaryMaskModel:
         return self
-
-    def evaluate(self, batch: dict[str, int], nsample: int):
-        return self._evaluate(batch["strategy"], nsample)
 
     def evaluate_with_dpm(self, batch: dict[str, int], nsample: int, dpm_steps: int):
         return self._evaluate(batch["strategy"], nsample)
@@ -50,8 +46,7 @@ def complementary_loaders():
     return [{"strategy": 0}], [{"strategy": 1}]
 
 
-@pytest.mark.parametrize("use_dpm_solver", [False, True])
-def test_evaluate_merges_each_strategy_on_its_own_target_mask(use_dpm_solver: bool):
+def test_evaluate_merges_each_strategy_on_its_own_target_mask():
     loader_0, loader_1 = complementary_loaders()
 
     result = evaluate(
@@ -60,7 +55,6 @@ def test_evaluate_merges_each_strategy_on_its_own_target_mask(use_dpm_solver: bo
         loader_1,
         nsample=1,
         save_results=False,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=2,
     )
 
@@ -76,7 +70,6 @@ def test_evaluate_ad_tesseract2_residuals_use_target_mask_reconstructions():
         loader_0,
         loader_1,
         nsample=1,
-        use_dpm_solver=False,
     )
 
     np.testing.assert_allclose(result["residual"], np.zeros(4))

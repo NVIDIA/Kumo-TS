@@ -1,5 +1,12 @@
 # Kumo-Anomaly
 
+Inference uses DPM-Solver++ exclusively. Training, noise schedules, and checkpoint
+weights are unchanged; existing checkpoints do not require retraining.
+
+The low-level inference APIs retain `dpm_steps=20` but no longer accept
+`use_dpm_solver`. Remove that argument from existing calls. The DDPM, DDIM, and
+DDPM intermediate-step sampling methods are no longer exposed.
+
 A package for anomaly detection using Kumo-Anomaly diffusion models.
 
 ## Features
@@ -416,7 +423,6 @@ results = inference_ad_tesseract2(
     data=df,
     # model_path omitted -> final_model.pth auto-downloaded
     nsample=30,
-    use_dpm_solver=True,   # For faster inference
     dpm_steps=20,
 )
 
@@ -456,7 +462,7 @@ python examples/quick_example.py
 
 ## Performance Notes
 
-- **DPM-Solver**: Use `use_dpm_solver=True` for 50-100x inference speedup
+- **DPM-Solver++**: Inference always uses DPM-Solver++; adjust `dpm_steps` to set the sampling budget (default: 20).
 - **Multi-GPU**: Automatically detected and used when available
 - **Memory**: Large datasets are processed in chunks to manage memory usage
 - **Preprocessing**: Models are cached to avoid repeated loading
