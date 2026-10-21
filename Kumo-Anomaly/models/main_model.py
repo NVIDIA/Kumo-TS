@@ -592,24 +592,10 @@ class TSDiffuser_base(nn.Module):
             schedule="discrete", betas=torch.tensor(self.beta, dtype=torch.float32).to(self.device)
         )
 
-        # Precompute timesteps we'll use for unconditional model
-        if self.is_unconditional:
-            # Calculate which timesteps DPM-Solver will use
-            timesteps_to_use = torch.linspace(0, self.num_steps - 1, num_steps).long()
-
         for i in range(n_samples):
-            # Generate noisy observation for unconditional model
+            # Cache cumulative forward-noised observations at visited training labels.
             if self.is_unconditional:
                 noisy_cond_history = {}
-
-                # Precompute noisy conditions for timesteps we'll actually use
-                for t in timesteps_to_use:
-                    t_idx = t.item()
-                    noise = self._randn_like_per_window(observed_data, generators)
-                    alpha_t = self.alpha_hat[t_idx]
-                    beta_t = self.beta[t_idx]
-                    noisy_obs_t = (alpha_t**0.5) * observed_data + (beta_t**0.5) * noise
-                    noisy_cond_history[t_idx] = noisy_obs_t * cond_mask
 
             # Initialize from noise
             current_sample = self._randn_like_per_window(observed_data, generators)
@@ -621,15 +607,15 @@ class TSDiffuser_base(nn.Module):
 
                 Args:
                     x: Current sample (B, K, L)
-                    t_continuous: Solver time in [1 / N, 1], where N is the training step count.
+                    t_continuous: Solver time in [1 / N, 1], where N is the effective schedule length.
 
                 Returns:
                     Predicted noise
                 """
-                # NoiseScheduleVP places training label k at t = (k + 1) / N.
-                # Convert once; this adapter already accepts continuous solver time.
-                t_discrete = (t_continuous * self.num_steps - 1).round().long()
-                t_discrete = torch.clamp(t_discrete, 0, self.num_steps - 1)
+                # Clipping rebuilds the solver grid using the effective schedule length.
+                # Convert once: training label k is at solver time (k + 1) / total_N.
+                t_discrete = (t_continuous * noise_schedule.total_N - 1).round().long()
+                t_discrete = torch.clamp(t_discrete, 0, noise_schedule.total_N - 1)
 
                 # Handle batch dimension properly
                 if t_discrete.dim() == 0:
@@ -640,17 +626,15 @@ class TSDiffuser_base(nn.Module):
 
                 # Prepare input based on conditioning strategy
                 if self.is_unconditional:
-                    # Use precomputed noisy condition if available
-                    if t_idx in noisy_cond_history:
-                        noisy_cond = noisy_cond_history[t_idx]
-                    else:
-                        # Fallback: compute on the fly (shouldn't happen with precompute)
+                    if t_idx not in noisy_cond_history:
+                        # q(x_t | x_0) uses cumulative alpha and complementary variance.
                         noise = self._randn_like_per_window(observed_data, generators)
-                        alpha_t = self.alpha_hat[t_idx]
-                        beta_t = self.beta[t_idx]
-                        noisy_cond = (alpha_t**0.5) * observed_data + (beta_t**0.5) * noise
-                        noisy_cond = noisy_cond * cond_mask
+                        alpha_t = self.alpha[t_idx]
+                        noisy_cond_history[t_idx] = (
+                            (alpha_t**0.5) * observed_data + ((1 - alpha_t) ** 0.5) * noise
+                        ) * cond_mask
 
+                    noisy_cond = noisy_cond_history[t_idx]
                     diff_input = cond_mask * noisy_cond + (1.0 - cond_mask) * x
                     diff_input = diff_input.unsqueeze(1)  # (B, 1, K, L)
                 else:
