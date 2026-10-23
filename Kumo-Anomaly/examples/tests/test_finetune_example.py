@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -86,3 +87,71 @@ def test_feature_adapter_pads_to_target_dim_and_scales_train_stats():
     assert torch.allclose(transformed[:, 0], torch.tensor([0.0, 10.0, 20.0]))
     assert torch.allclose(transformed[:, 1], torch.tensor([0.0, 10.0, 20.0]))
     assert torch.all(transformed[:, 2:] == 0.0)
+
+
+def write_run_config(path, dataset: dict, train: dict | None = None) -> None:
+    path.write_text(yaml.safe_dump({"dataset": dataset, "train": train or {}}))
+
+
+def test_run_config_sets_asset_and_column_options(monkeypatch, tmp_path):
+    run_config = tmp_path / "run_config.yaml"
+    write_run_config(
+        run_config,
+        {
+            "csv": "train.csv",
+            "val_csv": "val.csv",
+            "label_col": "is_anomaly",
+            "drop_cols": "sensor_3,sensor_4",
+        },
+        {"pretrained_model": "weights/final_model.pth", "config": "weights/curriculum_medium.yaml"},
+    )
+    monkeypatch.setattr("sys.argv", ["finetune_example.py", "--run-config", str(run_config)])
+
+    args = finetune_example.parse_args()
+
+    assert args.val_csv == "val.csv"
+    assert args.label_col == "is_anomaly"
+    assert args.drop_cols == "sensor_3,sensor_4"
+    assert args.pretrained_model == "weights/final_model.pth"
+    assert args.config == "weights/curriculum_medium.yaml"
+
+
+def test_run_config_accepts_drop_cols_as_a_list(monkeypatch, tmp_path):
+    run_config = tmp_path / "run_config.yaml"
+    write_run_config(run_config, {"csv": "train.csv", "drop_cols": ["sensor_3", "sensor_4"]})
+    monkeypatch.setattr("sys.argv", ["finetune_example.py", "--run-config", str(run_config)])
+
+    args = finetune_example.parse_args()
+
+    assert finetune_example.parse_column_list(args.drop_cols) == ["sensor_3", "sensor_4"]
+
+
+def test_run_config_empty_strings_keep_argparse_defaults(monkeypatch, tmp_path):
+    run_config = tmp_path / "run_config.yaml"
+    write_run_config(
+        run_config,
+        {"csv": "train.csv", "val_csv": "", "label_col": "", "drop_cols": ""},
+        {"pretrained_model": "", "config": ""},
+    )
+    monkeypatch.setattr("sys.argv", ["finetune_example.py", "--run-config", str(run_config)])
+
+    args = finetune_example.parse_args()
+
+    assert args.val_csv is None
+    assert args.label_col is None
+    assert args.drop_cols is None
+    assert args.pretrained_model is None
+    assert args.config is None
+
+
+def test_cli_flags_override_run_config_asset_options(monkeypatch, tmp_path):
+    run_config = tmp_path / "run_config.yaml"
+    write_run_config(run_config, {"csv": "train.csv"}, {"pretrained_model": "from_file.pth"})
+    monkeypatch.setattr(
+        "sys.argv",
+        ["finetune_example.py", "--run-config", str(run_config), "--pretrained-model", "from_cli.pth"],
+    )
+
+    args = finetune_example.parse_args()
+
+    assert args.pretrained_model == "from_cli.pth"
