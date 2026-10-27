@@ -42,7 +42,7 @@ results = inference_ad_tesseract2(data, model_path, config_path, nsample=30)
 
 # For fast inference with DPM-Solver (50-100x speedup):
 results = inference_ad_tesseract2(data, model_path, config_path, nsample=30,
-                                  use_dpm_solver=True, dpm_steps=20)
+                                  dpm_steps=20)
 
 # For multi-GPU inference (spawns workers per call):
 from sdk.inference_ad import inference_ad_tesseract2_mp
@@ -50,7 +50,7 @@ results = inference_ad_tesseract2_mp(data, "model.pth", nsample=30)
 
 # For multi-GPU inference with DPM-Solver (massive speedup):
 results = inference_ad_tesseract2_mp(data, "model.pth", nsample=30,
-                                     use_dpm_solver=True, dpm_steps=20)
+                                     dpm_steps=20)
 """
 
 import json
@@ -821,7 +821,7 @@ def prepare_for_metrics(recon, target):
     return recon_flat, target_flat
 
 
-def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_dpm_solver=False, dpm_steps=20):
+def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, dpm_steps=20):
     """
     Evaluate the model and return raw samples before median.
 
@@ -833,7 +833,6 @@ def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_d
         test_loader1: First test dataloader
         test_loader2: Second test dataloader
         nsample: Number of samples to generate
-        use_dpm_solver: If True, use DPM-Solver for fast inference
         dpm_steps: Number of DPM-Solver steps (10-50)
 
     Returns:
@@ -845,7 +844,6 @@ def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_d
         test_loader2,
         nsample=nsample,
         save_results=False,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
     )
     return {
@@ -937,20 +935,18 @@ def evaluate_ad_tesseract2(
     test_loader1,
     test_loader2,
     nsample=30,
-    use_dpm_solver=False,
     dpm_steps=20,
     window_seeds=None,
     valid_feature_mask=None,
 ):
     """
-    Evaluate the model on the test data with optional DPM-Solver support.
+    Evaluate the model on the test data using DPM-Solver++.
 
     Args:
         model: The diffusion model
         test_loader1: First test dataloader
         test_loader2: Second test dataloader
         nsample: Number of samples to generate
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
         valid_feature_mask: Boolean model-dimension mask. When omitted, the
             mask recorded by ``InferenceData`` is used, or all dimensions if
@@ -969,7 +965,6 @@ def evaluate_ad_tesseract2(
         test_loader2,
         nsample=nsample,
         save_results=False,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
         window_seeds=window_seeds,
     )
@@ -1222,7 +1217,6 @@ def inference_ad_tesseract2(
     config_path: str = "",
     nsample=30,
     preprocess_model_dir=None,
-    use_dpm_solver=True,
     dpm_steps=20,
     feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ):
@@ -1242,7 +1236,6 @@ def inference_ad_tesseract2(
         nsample: Number of samples for diffusion model inference
         preprocess_model_dir: Directory containing an external preprocessing model (optional). When omitted,
             fitted preprocessing embedded in a fine-tuned checkpoint is replayed automatically.
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
         feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
             shares the norm-matched mean checkpoint embedding across active
@@ -1333,7 +1326,6 @@ def inference_ad_tesseract2(
         test_loader1,
         test_loader2,
         nsample=nsample,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
         valid_feature_mask=valid_feature_mask,
     )
@@ -1358,7 +1350,6 @@ def inference_ad_tesseract2_mp(
     gpu_ids: list[int] | None = None,
     seed: int = DEFAULT_SEED,
     deterministic: bool = True,
-    use_dpm_solver: bool = True,
     dpm_steps: int = 20,
     feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> dict:
@@ -1381,7 +1372,6 @@ def inference_ad_tesseract2_mp(
         gpu_ids: List of GPU ids to use (defaults to all visible GPUs).
         seed: Random seed for reproducibility.
         deterministic: If True, enable deterministic behavior in workers.
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
         feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
             shares the norm-matched mean checkpoint embedding across active
@@ -1409,7 +1399,6 @@ def inference_ad_tesseract2_mp(
             config_path=resolved_config,
             nsample=nsample,
             preprocess_model_dir=preprocess_model_dir,
-            use_dpm_solver=use_dpm_solver,
             dpm_steps=dpm_steps,
             feature_embedding_mode=feature_embedding_mode,
         )
@@ -1424,7 +1413,7 @@ def inference_ad_tesseract2_mp(
     num_processes = max(1, min(num_processes, len(gpu_ids)))
 
     # Log multiprocessing + DPM strategy
-    method_str = f"DPM-Solver ({dpm_steps} steps)" if use_dpm_solver else "Standard Diffusion"
+    method_str = f"DPM-Solver++ ({dpm_steps} steps)"
     logger.info("%s", "\n" + "=" * 60)
     logger.info("GPU WORKER INFERENCE with %s", method_str)
     logger.info("%s", "=" * 60)
@@ -1510,7 +1499,6 @@ def inference_ad_tesseract2_mp(
                     "seed": seed,
                     "deterministic": deterministic,
                     "preprocess_model_dir": preprocess_model_dir,
-                    "use_dpm_solver": use_dpm_solver,
                     "dpm_steps": dpm_steps,
                     "feature_embedding_mode": feature_embedding_mode,
                     "num_active_features": int(valid_feature_mask.sum()),

@@ -25,10 +25,8 @@ Key Components:
    - **NEW: DPM-Solver++ for efficient sampling with 10-50 steps instead of 1000**
 
 3. Imputation Methods
-   - impute(): Standard reverse diffusion for missing value imputation.
-   - ddim_impute(): Implements the Deterministic DDIM process for faster inference.
+   - impute(): Missing value imputation using DPM-Solver++.
    - **NEW: dpm_solver_impute(): Fast inference using DPM-Solver++ (10-50 steps)**
-   - get_middle_impute_value(): Captures intermediate imputation steps for analysis.
 
 4. Model Variants
    - TSDiffuser_Generic (Flexible class for any dataset)
@@ -540,96 +538,17 @@ class TSDiffuser_base(nn.Module):
             dim=0,
         )
 
-    def impute(self, observed_data, cond_mask, side_info, n_samples, strategy_type, generators=None):
-        B, K, L = observed_data.shape
-
-        imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)
-
-        for i in range(n_samples):
-            # generate noisy observation for unconditional model
-            if self.is_unconditional:
-                noisy_obs = observed_data
-                noisy_cond_history = []
-                for t in range(self.num_steps):
-                    noise = self._randn_like_per_window(noisy_obs, generators)
-                    noisy_obs = (self.alpha_hat[t] ** 0.5) * noisy_obs + self.beta[t] ** 0.5 * noise
-                    noisy_cond_history.append(noisy_obs * cond_mask)
-
-            current_sample = self._randn_like_per_window(observed_data, generators)
-
-            for t in range(self.num_steps - 1, -1, -1):
-                if self.is_unconditional:
-                    diff_input = cond_mask * noisy_cond_history[t] + (1.0 - cond_mask) * current_sample
-                    diff_input = diff_input.unsqueeze(1)  # (B,1,K,L)
-                else:
-                    cond_obs = (cond_mask * observed_data).unsqueeze(1)
-                    noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
-                    diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
-                predicted = self.diffmodel(
-                    diff_input,
-                    side_info,
-                    torch.tensor([t]).to(self.device),
-                    strategy_type,
-                )
-
-                coeff1 = 1 / self.alpha_hat[t] ** 0.5
-                coeff2 = (1 - self.alpha_hat[t]) / (1 - self.alpha[t]) ** 0.5
-                current_sample = coeff1 * (current_sample - coeff2 * predicted)
-
-                if t > 0:
-                    noise = self._randn_like_per_window(current_sample, generators)
-                    sigma = ((1.0 - self.alpha[t - 1]) / (1.0 - self.alpha[t]) * self.beta[t]) ** 0.5
-                    current_sample += sigma * noise
-
-            imputed_samples[:, i] = current_sample.detach()
-        return imputed_samples
-
-    def ddim_impute(self, observed_data, cond_mask, side_info, n_samples, strategy_type, ddim_eta=1, ddim_steps=10):
-        B, K, L = observed_data.shape
-
-        imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)
-
-        for i in range(n_samples):
-            # generate noisy observation for unconditional model
-            if self.is_unconditional:
-                noisy_obs = observed_data
-                noisy_cond_history = []
-                for t in range(self.num_steps):
-                    noise = torch.randn_like(noisy_obs)
-                    noisy_obs = (self.alpha_hat[t] ** 0.5) * noisy_obs + self.beta[t] ** 0.5 * noise
-                    noisy_cond_history.append(noisy_obs * cond_mask)
-
-            current_sample = torch.randn_like(observed_data)
-
-            ddim_timesteps = ddim_steps
-            c = self.num_steps // ddim_timesteps
-            ddim_timesteps_sequence = np.asarray(list(range(0, self.num_steps, c)))
-            ddim_timesteps_previous_sequence = np.append(np.array([0]), ddim_timesteps_sequence[:-1])
-
-            for step_number in range(ddim_timesteps - 1, -1, -1):
-                t = ddim_timesteps_sequence[step_number]
-                previous_t = ddim_timesteps_previous_sequence[step_number]
-
-                at = torch.tensor(self.alpha[t]).to(self.device)
-                at_next = torch.tensor(self.alpha[previous_t]).to(self.device)
-
-                if self.is_unconditional:
-                    diff_input = cond_mask * noisy_cond_history[t] + (1.0 - cond_mask) * current_sample
-                    diff_input = diff_input.unsqueeze(1)  # (B,1,K,L)
-                else:
-                    cond_obs = (cond_mask * observed_data).unsqueeze(1)
-                    noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
-                    diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
-                xt = diff_input
-                et = self.diffmodel(xt, side_info, torch.tensor([t]).to(self.device), strategy_type)
-                x0_t = (current_sample - et * (1 - at).sqrt()) / at.sqrt()
-
-                c1 = ddim_eta * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
-                c2 = ((1 - at_next) - c1**2).sqrt()
-                current_sample = at_next.sqrt() * x0_t + c1 * torch.randn_like(current_sample) + c2 * et
-
-            imputed_samples[:, i] = current_sample.detach()
-        return imputed_samples
+    def impute(self, observed_data, cond_mask, side_info, n_samples, strategy_type, generators=None, dpm_steps=20):
+        """Generate imputations using DPM-Solver++ exclusively."""
+        return self.dpm_solver_impute(
+            observed_data,
+            cond_mask,
+            side_info,
+            n_samples,
+            strategy_type,
+            num_steps=dpm_steps,
+            generators=generators,
+        )
 
     def dpm_solver_impute(
         self,
@@ -661,7 +580,7 @@ class TSDiffuser_base(nn.Module):
             Recommended num_steps: 20 for best quality/speed tradeoff, 10 for maximum speed.
         """
         try:
-            from utils.dpm_solver_pytorch import DPM_Solver, NoiseScheduleVP, model_wrapper
+            from utils.dpm_solver_pytorch import DPM_Solver, NoiseScheduleVP
         except ImportError as e:
             raise ImportError("DPM-Solver not found. Use the local copy (utils.dpm_solver_pytorch).") from e
 
@@ -673,24 +592,10 @@ class TSDiffuser_base(nn.Module):
             schedule="discrete", betas=torch.tensor(self.beta, dtype=torch.float32).to(self.device)
         )
 
-        # Precompute timesteps we'll use for unconditional model
-        if self.is_unconditional:
-            # Calculate which timesteps DPM-Solver will use
-            timesteps_to_use = torch.linspace(0, self.num_steps - 1, num_steps).long()
-
         for i in range(n_samples):
-            # Generate noisy observation for unconditional model
+            # Cache cumulative forward-noised observations at visited training labels.
             if self.is_unconditional:
                 noisy_cond_history = {}
-
-                # Precompute noisy conditions for timesteps we'll actually use
-                for t in timesteps_to_use:
-                    t_idx = t.item()
-                    noise = self._randn_like_per_window(observed_data, generators)
-                    alpha_t = self.alpha_hat[t_idx]
-                    beta_t = self.beta[t_idx]
-                    noisy_obs_t = (alpha_t**0.5) * observed_data + (beta_t**0.5) * noise
-                    noisy_cond_history[t_idx] = noisy_obs_t * cond_mask
 
             # Initialize from noise
             current_sample = self._randn_like_per_window(observed_data, generators)
@@ -702,14 +607,15 @@ class TSDiffuser_base(nn.Module):
 
                 Args:
                     x: Current sample (B, K, L)
-                    t_continuous: Continuous time in [0, 1]
+                    t_continuous: Solver time in [1 / N, 1], where N is the effective schedule length.
 
                 Returns:
                     Predicted noise
                 """
-                # Convert continuous time [0, 1] to discrete timestep
-                t_discrete = (t_continuous * (self.num_steps - 1)).long()
-                t_discrete = torch.clamp(t_discrete, 0, self.num_steps - 1)
+                # Clipping rebuilds the solver grid using the effective schedule length.
+                # Convert once: training label k is at solver time (k + 1) / total_N.
+                t_discrete = (t_continuous * noise_schedule.total_N - 1).round().long()
+                t_discrete = torch.clamp(t_discrete, 0, noise_schedule.total_N - 1)
 
                 # Handle batch dimension properly
                 if t_discrete.dim() == 0:
@@ -720,17 +626,15 @@ class TSDiffuser_base(nn.Module):
 
                 # Prepare input based on conditioning strategy
                 if self.is_unconditional:
-                    # Use precomputed noisy condition if available
-                    if t_idx in noisy_cond_history:
-                        noisy_cond = noisy_cond_history[t_idx]
-                    else:
-                        # Fallback: compute on the fly (shouldn't happen with precompute)
+                    if t_idx not in noisy_cond_history:
+                        # q(x_t | x_0) uses cumulative alpha and complementary variance.
                         noise = self._randn_like_per_window(observed_data, generators)
-                        alpha_t = self.alpha_hat[t_idx]
-                        beta_t = self.beta[t_idx]
-                        noisy_cond = (alpha_t**0.5) * observed_data + (beta_t**0.5) * noise
-                        noisy_cond = noisy_cond * cond_mask
+                        alpha_t = self.alpha[t_idx]
+                        noisy_cond_history[t_idx] = (
+                            (alpha_t**0.5) * observed_data + ((1 - alpha_t) ** 0.5) * noise
+                        ) * cond_mask
 
+                    noisy_cond = noisy_cond_history[t_idx]
                     diff_input = cond_mask * noisy_cond + (1.0 - cond_mask) * x
                     diff_input = diff_input.unsqueeze(1)  # (B, 1, K, L)
                 else:
@@ -744,18 +648,9 @@ class TSDiffuser_base(nn.Module):
 
                 return noise_pred
 
-            # Wrap model for DPM-Solver
-            model_wrapped = model_wrapper(
-                model_fn,
-                noise_schedule,
-                model_type="noise",  # Our model predicts noise
-                model_kwargs={},
-                guidance_type="uncond",
-            )
-
             # Create DPM-Solver
             dpm_solver = DPM_Solver(
-                model_wrapped,
+                model_fn,  # Already accepts continuous time and predicts noise.
                 noise_schedule,
                 algorithm_type="dpmsolver++",  # Best variant
                 correcting_x0_fn=None,  # No correction needed
@@ -773,53 +668,6 @@ class TSDiffuser_base(nn.Module):
             imputed_samples[:, i] = current_sample.detach()
 
         return imputed_samples
-
-    def get_middle_impute_value(self, observed_data, cond_mask, side_info, n_samples, strategy_type):
-        B, K, L = observed_data.shape
-
-        imputed_samples = torch.zeros(B, n_samples, K, L).to(self.device)
-        imputed_middle_samples = torch.zeros(B, self.num_steps, K, L)
-
-        for i in range(n_samples):
-            # generate noisy observation for unconditional model
-            if self.is_unconditional:
-                noisy_obs = observed_data
-                noisy_cond_history = []
-                for t in range(self.num_steps):
-                    noise = torch.randn_like(noisy_obs)
-                    noisy_obs = (self.alpha_hat[t] ** 0.5) * noisy_obs + self.beta[t] ** 0.5 * noise
-                    noisy_cond_history.append(noisy_obs * cond_mask)
-
-            current_sample = torch.randn_like(observed_data)
-
-            for t in range(self.num_steps - 1, -1, -1):
-                if self.is_unconditional:
-                    diff_input = cond_mask * noisy_cond_history[t] + (1.0 - cond_mask) * current_sample
-                    diff_input = diff_input.unsqueeze(1)  # (B,1,K,L)
-                else:
-                    cond_obs = (cond_mask * observed_data).unsqueeze(1)
-                    noisy_target = ((1 - cond_mask) * current_sample).unsqueeze(1)
-                    diff_input = torch.cat([cond_obs, noisy_target], dim=1)  # (B,2,K,L)
-                predicted = self.diffmodel(
-                    diff_input,
-                    side_info,
-                    torch.tensor([t]).to(self.device),
-                    strategy_type,
-                )
-
-                coeff1 = 1 / self.alpha_hat[t] ** 0.5
-                coeff2 = (1 - self.alpha_hat[t]) / (1 - self.alpha[t]) ** 0.5
-                current_sample = coeff1 * (current_sample - coeff2 * predicted)
-
-                if t > 0:
-                    noise = torch.randn_like(current_sample)
-                    sigma = ((1.0 - self.alpha[t - 1]) / (1.0 - self.alpha[t]) * self.beta[t]) ** 0.5
-                    current_sample += sigma * noise
-
-                imputed_middle_samples[:, t] = current_sample.detach()
-
-            imputed_samples[:, i] = current_sample.detach()
-        return imputed_samples, imputed_middle_samples
 
     def forward(self, batch, is_train=1):
         (
@@ -853,47 +701,9 @@ class TSDiffuser_base(nn.Module):
             strategy_type=strategy_type,
         )
 
-    def evaluate(self, batch, n_samples, generators=None):
-        """
-        Standard evaluation using full diffusion process.
-
-        Args:
-            batch: Batch of data
-            n_samples: Number of samples to generate
-
-        Returns:
-            Tuple of (samples, observed_data, target_mask, observed_mask, observed_tp)
-        """
-        (
-            observed_data,
-            observed_mask,
-            observed_tp,
-            gt_mask,
-            _,
-            cut_length,
-            strategy_type,
-        ) = self.process_data(batch)
-
-        with torch.no_grad():
-            cond_mask = gt_mask
-            target_mask = observed_mask - cond_mask
-
-            side_info = self.get_side_info(observed_tp, cond_mask)
-
-            normalized_data, data_mean, data_std = self._normalize_observed_data(observed_data)
-            samples = self.impute(
-                normalized_data,
-                cond_mask,
-                side_info,
-                n_samples,
-                strategy_type,
-                generators=generators,
-            )
-            samples = self._denormalize_samples(samples, data_mean, data_std)
-
-            for i in range(len(cut_length)):  # to avoid double evaluation
-                target_mask[i, ..., 0 : cut_length[i].item()] = 0
-        return samples, observed_data, target_mask, observed_mask, observed_tp
+    def evaluate(self, batch, n_samples, generators=None, dpm_steps=20):
+        """Evaluate using DPM-Solver++, preserving normalization and output scale."""
+        return self.evaluate_with_dpm(batch, n_samples, dpm_steps=dpm_steps, generators=generators)
 
     def evaluate_with_dpm(self, batch, n_samples, dpm_steps=20, generators=None):
         """

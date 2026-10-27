@@ -308,6 +308,19 @@ def _run_config_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
         "seed": tr.get("seed"),
         "output_dir": tr.get("output_dir"),
     }
+    # Optional paths / column names. Spec templates use "" for "unset", which must
+    # keep the argparse default (e.g. auto-downloaded weights) instead of overriding it.
+    drop_cols = ds.get("drop_cols")
+    if isinstance(drop_cols, (list, tuple)):
+        drop_cols = ",".join(str(col) for col in drop_cols)
+    optional = {
+        "val_csv": ds.get("val_csv"),
+        "label_col": ds.get("label_col"),
+        "drop_cols": drop_cols,
+        "pretrained_model": tr.get("pretrained_model"),
+        "config": tr.get("config"),
+    }
+    mapping.update({k: v for k, v in optional.items() if v not in (None, "")})
     return {k: v for k, v in mapping.items() if v is not None}
 
 
