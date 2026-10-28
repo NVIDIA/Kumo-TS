@@ -893,16 +893,20 @@ def _create_mae_note_page(
             (
                 0.07,
                 "Top historical times",
-                "Bars rank the times with the largest reconstruction changes.\n"
-                "Each percentage uses the total change over the whole interval.\n"
-                "A large share is not a fault probability.",
+                (
+                    "Bars rank the times with the largest reconstruction changes.\n"
+                    "Each percentage uses the total change over the whole interval.\n"
+                    "A large share is not a fault probability."
+                ),
             ),
             (
                 0.53,
                 "Aligned timelines",
-                "The upper line shows measured values in their original units.\n"
-                "The lower timeline shows relative model responses at each time.\n"
-                "Matching numbers link both timelines to the Top-N bars.",
+                (
+                    "The upper line shows measured values in their original units.\n"
+                    "The lower timeline shows relative model responses at each time.\n"
+                    "Matching numbers link both timelines to the Top-N bars."
+                ),
             ),
         ]:
             figure.text(x, 0.209, title, fontsize=9, weight="bold", color="#101828", va="top")
