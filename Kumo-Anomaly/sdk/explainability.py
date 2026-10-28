@@ -120,7 +120,8 @@ def explain_reconstruction_anomalies(
         row_shares = eligible_shares[row_index, indices]
         contributors.append(json.dumps([names[index] for index in indices], separators=(",", ":")))
         shares.append(json.dumps([round(float(value), 6) for value in row_shares], separators=(",", ":")))
-        coverage[row_index] = float(row_shares.sum())
+        # Floating-point summation can put complete coverage just above one.
+        coverage[row_index] = float(np.clip(row_shares.sum(), 0.0, 1.0))
         methods.append("reconstruction_error")
 
     return pd.DataFrame(
