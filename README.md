@@ -218,11 +218,16 @@ This project is licensed under the Apache License, Version 2.0 — see [`LICENSE
 
 ## Blogs
 
+- [NVIDIA Kumo Forecast Combines Pretrained Time-Series Representations with Historical Pattern Retrieval and Interpretability](https://huggingface.co/blog/nvidia/kumo-forecast) — Hugging Face, October 21, 2026.
+- [NVIDIA Kumo Anomaly Brings Diffusion-Based Anomaly Detection to Multivariate Time Series](https://huggingface.co/blog/nvidia/kumo-anomaly) — Hugging Face, October 21, 2026.
 - [New NVIDIA NV-Tesseract Time Series Models Advance Dataset Processing and Anomaly Detection](https://developer.nvidia.com/blog/new-nvidia-nv-tesseract-time-series-models-advance-dataset-processing-and-anomaly-detection/)
 - [Smarter Anomaly Detection in Semiconductor Manufacturing with NV-Tesseract and NVIDIA Inference Microservices](https://developer.nvidia.com/blog/smarter-anomaly-detection-in-semiconductor-manufacturing-with-nvidia-nv-tesseract-and-nvidia-nim/)
 - [NV-Tesseract-AD: Diffusion-Based Anomaly Detection with Curriculum Learning Across Industries](https://developer.nvidia.com/blog/advancing-anomaly-detection-for-industry-applications-with-nvidia-nv-tesseract-ad/)
 
 ## References
+
+- A. Gautam, M. Ravikiran, S. Qureshi, S. F. Ekiz, C. Jagwani, M. Elhadidy, S. Roka. "[NV-Tesseract-AD: Curriculum-Enhanced Conditional Diffusion for Multivariate Time-Series Anomaly Detection](https://arxiv.org/abs/2610.12754)." *arXiv preprint arXiv:2610.12754*, 2026.
+- M. A. Li, M. Ravikiran, A. Gautam. "[NVExplain: Explaining Time Series Forecasting with Latent Trajectory Analysis and Structure-Preserving Surrogates](https://arxiv.org/abs/2608.25080)." *arXiv preprint arXiv:2608.25080*, 2026.
 - M. Ravikiran, A. Gautam, A. Chulani. "Beyond MAE: Measuring Forecast Reliability with Temporal Dependence-Aware Error (TDE)." *2025 IEEE International Conference on Big Data (BigData)*, pp. 7271–7277, 2025.
 - A. Gautam, M. Ravikiran, F. S. Ekiz. "Memory-Augmented Forecasting: Scalability and Generalization Across Temporal Domains." *2025 IEEE International Conference on Big Data (BigData)*, pp. 7258–7265, 2025.
 - M. A. Li, A. Gautam. "Segmented Confidence Sequences and Multi-Scale Adaptive Confidence Segments for Anomaly Detection in Nonstationary Time Series." *Proceedings of the 2025 5th International Conference on Artificial Intelligence and Application Technologies*, pp. 6–15, 2025.
