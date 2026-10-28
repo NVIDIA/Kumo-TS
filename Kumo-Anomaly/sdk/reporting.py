@@ -88,6 +88,34 @@ def _resolve_x_axis(df: pd.DataFrame, timestamp_column: str | None) -> tuple[np.
     return np.arange(len(df)), f"Row number ({timestamp_column} unavailable as time)", False
 
 
+def resolve_time_axis(df: pd.DataFrame, timestamp_column: str | None = None) -> dict:
+    """Serialize the report's datetime, numeric-time or zero-based row axis."""
+    values, label, is_datetime = _resolve_x_axis(df, timestamp_column)
+    kind = (
+        "datetime"
+        if is_datetime
+        else "numeric"
+        if timestamp_column is not None and pd.api.types.is_numeric_dtype(df[timestamp_column])
+        else "row_position"
+    )
+    if is_datetime:
+        first, last = pd.Timestamp(values.iloc[0]), pd.Timestamp(values.iloc[-1])
+        if first.date() == last.date() and last - first <= pd.Timedelta(minutes=5):
+            label = f"Time ({first:%Y-%m-%d})"
+    return dict(
+        kind=kind,
+        values=[str(pd.Timestamp(value)) for value in values] if is_datetime else np.asarray(values).tolist(),
+        label=label,
+        source=timestamp_column
+        if timestamp_column is not None
+        else "datetime_index"
+        if is_datetime
+        else "row_position",
+        position_base=0,
+        timezone=str(values.dt.tz) if is_datetime and values.dt.tz is not None else None,
+    )
+
+
 def _resolve_feature_columns(
     result_df: pd.DataFrame,
     feature_columns: Sequence[Hashable] | None,
@@ -230,9 +258,12 @@ def _style_axis(axis, *, is_datetime: bool) -> None:
     axis.spines[["top", "right"]].set_visible(False)
     axis.tick_params(labelsize=8, colors="#344054")
     if is_datetime:
-        locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
-        axis.xaxis.set_major_locator(locator)
-        axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+        from .historical_attribution import set_short_timestamp_ticks
+
+        if not axis.lines or not set_short_timestamp_ticks(axis, axis.lines[0].get_xdata(orig=True)):
+            locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
+            axis.xaxis.set_major_locator(locator)
+            axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
 
 
 def _add_footer(figure: Figure, page_number: int) -> None:
@@ -335,6 +366,7 @@ def _create_feature_page(
     page_number: int,
     feature_page_number: int,
     feature_page_count: int,
+    feature_units: dict | None = None,
 ) -> Figure:
     figure = Figure(figsize=(11.0, 8.5), facecolor="white")
     axes = figure.subplots(len(feature_columns), 1, sharex=True, squeeze=False)
@@ -375,7 +407,7 @@ def _create_feature_page(
                 zorder=4,
             )
         axis.set_title(str(feature), loc="left", fontsize=10, fontweight="bold", color="#101828")
-        axis.set_ylabel("Value", fontsize=8)
+        axis.set_ylabel((feature_units or {}).get(str(feature), "Value"), fontsize=8)
         _style_axis(axis, is_datetime=is_datetime)
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
@@ -718,20 +750,24 @@ def _create_mae_note_page(
     page_number: int,
     uses_row_numbers: bool = False,
     include_diagnosis: bool = False,
+    include_historical: bool = False,
 ) -> Figure:
     figure = Figure(figsize=(11.0, 8.5), facecolor="white")
-    axis = figure.add_axes((0.07, 0.10, 0.86, 0.80))
+    axis = figure.add_axes((0.07, 0.33, 0.86, 0.57) if include_historical else (0.07, 0.10, 0.86, 0.80))
     axis.axis("off")
     axis.set_xlim(0.0, 1.0)
     axis.set_ylim(0.0, 1.0)
     axis.set_autoscale_on(False)
 
-    title = "How to interpret this report" if include_diagnosis else "About the MAE anomaly score"
+    title = "How to interpret this report" if include_diagnosis or include_historical else "About the MAE anomaly score"
     axis.text(0.0, 0.98, title, fontsize=18, fontweight="bold", color="#17365D", va="top")
     axis.text(
         0.0,
         0.86,
-        "MAE means mean absolute error. It is the average absolute\n"
+        "MAE means mean absolute error. It is the average\n"
+        "absolute difference between observed and reconstructed\nvalues at each sample."
+        if include_historical
+        else "MAE means mean absolute error. It is the average absolute\n"
         "difference between observed and reconstructed values at each sample.",
         fontsize=9.5,
         color="#344054",
@@ -758,7 +794,8 @@ def _create_mae_note_page(
     ]
     if uses_row_numbers:
         notes.append(
-            "No usable timestamp column was provided, so time steps in this report are zero-based DataFrame row numbers."
+            "No usable timestamp column was provided, so time steps\n"
+            "in this report are zero-based DataFrame row numbers."
         )
     axis.text(0.0, 0.57, "MAE interpretation", fontsize=11, fontweight="bold", color="#175CD3", va="top")
     note_positions = [0.49, 0.34, 0.23, 0.12, 0.02]
@@ -833,9 +870,50 @@ def _create_mae_note_page(
         axis.text(
             x_position,
             0.025,
-            "Agreement across repeated evaluations; Not evaluated means one evaluation was used.",
+            "Agreement across repeated evaluations;\nNot evaluated means one evaluation was used."
+            if include_historical
+            else "Agreement across repeated evaluations; Not evaluated means one evaluation was used.",
             fontsize=7.4,
             color="#475467",
+            va="top",
+        )
+
+    if include_historical:
+        figure.text(0.07, 0.30, "Historical attribution", fontsize=11, weight="bold", color="#175CD3", va="top")
+        figure.text(
+            0.07,
+            0.267,
+            "This analysis changes an earlier segment and compares the model's reconstructions.\n"
+            "It highlights times worth reviewing while the analysis point stays fixed.",
+            fontsize=8.5,
+            color="#344054",
+            va="top",
+        )
+        for x, title, text in [
+            (
+                0.07,
+                "Top historical times",
+                "Bars rank the times with the largest reconstruction changes.\n"
+                "Each percentage uses the total change over the whole interval.\n"
+                "A large share is not a fault probability.",
+            ),
+            (
+                0.53,
+                "Aligned timelines",
+                "The upper line shows measured values in their original units.\n"
+                "The lower timeline shows relative model responses at each time.\n"
+                "Matching numbers link both timelines to the Top-N bars.",
+            ),
+        ]:
+            figure.text(x, 0.209, title, fontsize=9, weight="bold", color="#101828", va="top")
+            figure.text(x, 0.185, text, fontsize=8, color="#475467", va="top", linespacing=1.4)
+        figure.text(
+            0.07,
+            0.093,
+            "Takeaway: inspect the measurements around the highlighted times.\n"
+            "Model sensitivity does not confirm a fault source; unavailable results explain why no ranking is shown.",
+            fontsize=8.5,
+            color="#344054",
             va="top",
         )
 
@@ -857,6 +935,8 @@ def generate_anomaly_detection_report(
     explanation_csv_path: str | Path | None = None,
     max_report_pages: int = DEFAULT_MAX_REPORT_PAGES,
     consolidated_top_k: int = DEFAULT_CONSOLIDATED_TOP_K,
+    historical_attribution: dict | None = None,
+    feature_units: dict | None = None,
 ) -> Path:
     """Create a PDF report from an anomaly-analysis result DataFrame.
 
@@ -912,7 +992,18 @@ def generate_anomaly_detection_report(
     scores = pd.to_numeric(result_df[score_column], errors="coerce").to_numpy(dtype=float)
     if not np.isfinite(scores).all():
         raise ValueError(f"{score_column} must contain only finite numeric values.")
-    x_values, x_label, is_datetime = _resolve_x_axis(result_df, resolved_timestamp)
+    time_axis = resolve_time_axis(result_df, resolved_timestamp)
+    x_label, is_datetime = time_axis["label"], time_axis["kind"] == "datetime"
+    x_values = (
+        pd.Series(
+            pd.to_datetime(time_axis["values"], utc=True).tz_convert(time_axis["timezone"])
+            if time_axis["timezone"] is not None
+            else pd.to_datetime(time_axis["values"]),
+            index=result_df.index,
+        )
+        if is_datetime
+        else np.asarray(time_axis["values"])
+    )
     explanation_rows = _resolve_explanation_rows(
         result_df,
         detected,
@@ -922,6 +1013,22 @@ def generate_anomaly_detection_report(
     diagnosis_rows = _resolve_diagnosis_rows(result_df, detected)
     if diagnosis_rows is not None and explanation_rows is None:
         raise ValueError("Reconstruction-diagnosis report data requires feature-contribution explanation columns.")
+
+    # Available results use rankings/summary + timelines; unavailable results use one page.
+    historical_page_count = 0
+    if historical_attribution is not None:
+        historical_page_count = (
+            2
+            if historical_attribution.get("schema_version") == "reconstruction_shares_v1"
+            or historical_attribution.get("status") == "ok"
+            else 1
+        )
+    reserved_pages = 2 + (1 if explanation_rows is not None else 0) + historical_page_count
+    if max_report_pages < reserved_pages + 1:
+        raise ValueError(
+            f"max_report_pages={max_report_pages} cannot accommodate the required "
+            f"{reserved_pages + 1} pages, including {historical_page_count} historical pages."
+        )
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -938,8 +1045,7 @@ def generate_anomaly_detection_report(
             csv_destination,
             is_datetime=is_datetime,
         )
-    reserved_pages = 2 + (1 if explanation_rows is not None else 0)
-    available_feature_pages = max(1, max_report_pages - reserved_pages)
+    available_feature_pages = max_report_pages - reserved_pages
     effective_features_per_page = max(
         max_features_per_page,
         int(np.ceil(len(resolved_features) / available_feature_pages)),
@@ -976,7 +1082,9 @@ def generate_anomaly_detection_report(
         feature: FEATURE_COLORS[index % len(FEATURE_COLORS)] for index, feature in enumerate(explanation_features)
     }
     detailed_page_count = 2 + len(feature_groups) + len(explanation_groups)
-    use_consolidated_explanations = explanation_rows is not None and detailed_page_count > max_report_pages
+    use_consolidated_explanations = (
+        explanation_rows is not None and detailed_page_count + historical_page_count > max_report_pages
+    )
     consolidated_contributions: list[tuple[str, float]] = []
     consolidated_coverage = 0.0
     if use_consolidated_explanations:
@@ -1016,6 +1124,7 @@ def generate_anomaly_detection_report(
                     page_number=page_number,
                     feature_page_number=feature_page_number,
                     feature_page_count=len(feature_groups),
+                    feature_units=feature_units,
                 )
             )
         if use_consolidated_explanations:
@@ -1045,11 +1154,18 @@ def generate_anomaly_detection_report(
                     diagnosis_rows=diagnosis_group,
                 )
             )
+        if historical_attribution is not None:
+            from sdk.historical_attribution import create_historical_pages
+
+            historical_pages = create_historical_pages(historical_attribution, start_page=page_count)
+            for page in historical_pages:
+                pdf.savefig(page)
         pdf.savefig(
             _create_mae_note_page(
-                page_number=page_count,
+                page_number=page_count + historical_page_count,
                 uses_row_numbers=x_label.startswith("Row number"),
                 include_diagnosis=diagnosis_rows is not None,
+                include_historical=historical_attribution is not None,
             )
         )
     return destination

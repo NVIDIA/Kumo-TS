@@ -33,6 +33,7 @@ from sdk.reporting import (
     generate_anomaly_detection_report,
     infer_ground_truth_column,
     infer_timestamp_column,
+    resolve_time_axis,
 )
 from sdk.thresholds import MACSThresholdStrategy, SCSThresholdStrategy
 
@@ -110,6 +111,7 @@ def perform_anomaly_analysis_with_diffusion(
     preprocess_model_dir: str | Path | None = None,
     sdk_config: ADDiffusionConfig | str | Path | None = None,
     feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
+    historical_attribution=None,
 ) -> pd.DataFrame:
     """
     Perform anomaly analysis using Kumo-Anomaly Model.
@@ -137,6 +139,10 @@ def perform_anomaly_analysis_with_diffusion(
             shares the norm-matched mean checkpoint embedding across active
             features and zeros feature side information at SDK-identified padded
             positions. Pass ``"positional"`` for legacy checkpoint behavior.
+        historical_attribution: Optional HistoricalAttributionRequest. Computes one
+            historical replacement using the existing inference settings and appends
+            reader-facing pages to the original PDF. Settings are documented on the
+            request class; omitted by default to preserve existing SDK behavior.
 
     Returns:
         DataFrame with original data and anomaly detection results
@@ -155,7 +161,7 @@ def perform_anomaly_analysis_with_diffusion(
     resolved_timestamp_column = None
     resolved_ground_truth_column = None
     metadata_columns = []
-    if cfg.report_path is not None:
+    if cfg.report_path is not None or historical_attribution is not None:
         resolved_timestamp_column = cfg.timestamp_column or infer_timestamp_column(df)
         resolved_ground_truth_column = cfg.ground_truth_column or infer_ground_truth_column(df)
         metadata_columns = [
@@ -189,6 +195,19 @@ def perform_anomaly_analysis_with_diffusion(
             f"The following columns contain non-numeric values: {non_numeric_cols}. "
             f"All input values must be numeric for anomaly detection."
         )
+
+    historical_event_labels = None
+    if historical_attribution is not None and historical_attribution.event_source == "dataset_label":
+        if resolved_ground_truth_column is None:
+            raise ValueError("Aligned binary dataset event labels require a ground-truth column")
+        historical_event_labels = df[resolved_ground_truth_column]
+        if (
+            not isinstance(historical_event_labels, pd.Series)
+            or not historical_event_labels.index.equals(input_df.index)
+            or historical_event_labels.isna().any()
+            or not historical_event_labels.isin([0, 1]).all()
+        ):
+            raise ValueError("Aligned binary dataset event labels are required")
 
     resolved_model, resolved_config = _resolve_model_paths(
         str(model_path) if model_path else None,
@@ -247,10 +266,12 @@ def perform_anomaly_analysis_with_diffusion(
     # Apply thresholding strategy
     if threshold_strategy == "scs":
         # Use actual target data from the model results
-        anomalies = SCSThresholdStrategy().scs_thresholder.detect_anomalies(residual_scores, threshold_target_data)
+        threshold_detector = SCSThresholdStrategy().scs_thresholder
+        anomalies = threshold_detector.detect_anomalies(residual_scores, threshold_target_data)
     elif threshold_strategy == "macs":
         # Use actual target data from the model results
-        anomalies = MACSThresholdStrategy().macs_thresholder.detect_anomalies(residual_scores, threshold_target_data)
+        threshold_detector = MACSThresholdStrategy().macs_thresholder
+        anomalies = threshold_detector.detect_anomalies(residual_scores, threshold_target_data)
     else:
         raise ValueError(f"Unknown threshold strategy: {threshold_strategy}")
 
@@ -359,6 +380,67 @@ def perform_anomaly_analysis_with_diffusion(
             )
             for column in diagnoses.columns:
                 result_df[column] = diagnoses[column].to_numpy()
+
+    historical_result = None
+    if historical_attribution is not None:
+        if preprocess_model_dir is not None or (
+            len(input_df.columns) > target_dim and results.get("feature_names") is None
+        ):
+            raise ValueError("Historical attribution currently requires direct feature mapping")
+        from sdk.historical_attribution import run_sdk_attribution
+
+        event_positions = np.flatnonzero(anomalies)
+        p = historical_attribution.event_position
+        p = int(event_positions[0]) if p is None and len(event_positions) else p
+        trace = {
+            "strategy": threshold_strategy,
+            "sdk_detected": p is not None and 0 <= p < len(anomalies) and bool(anomalies[p]),
+        }
+        if threshold_strategy == "scs" and p is not None:
+            for segment, (lo, hi) in enumerate(threshold_detector.segments):
+                if lo <= p <= hi:
+                    lower, upper = threshold_detector.segment_bounds[segment]
+                    trace.update(
+                        segment=[int(lo), int(hi)],
+                        lower=float(lower[p - lo]),
+                        upper=float(upper[p - lo]),
+                        percentile_filter=float(threshold_detector.percentile_filter),
+                        percentile_threshold=float(
+                            np.percentile(residual_scores, threshold_detector.percentile_filter)
+                        ),
+                        rule="outside segment bounds AND score above global percentile",
+                    )
+                    break
+
+        def replay(data):
+            return inference_ad_tesseract2_mp(
+                data=data,
+                model_path=resolved_model,
+                config_path=resolved_config,
+                nsample=nsample,
+                preprocess_model_dir=None,
+                feature_embedding_mode=feature_embedding_mode,
+            )
+
+        historical_result = run_sdk_attribution(
+            input_df,
+            results,
+            anomalies,
+            residual_scores,
+            historical_attribution,
+            replay,
+            resolved_model,
+            resolved_config,
+            time_axis=resolve_time_axis(df, resolved_timestamp_column),
+            threshold_trace=trace,
+            event_labels=historical_event_labels,
+        )
+        result_df.attrs["historical_attribution"] = historical_result
+        if cfg.report_path is not None:
+            sidecar = Path(cfg.report_path).with_suffix(".historical.json")
+            sidecar.parent.mkdir(parents=True, exist_ok=True)
+            sidecar.write_text(json.dumps(historical_result, ensure_ascii=False, indent=2, allow_nan=False))
+
     if cfg.report_path is not None:
         generate_anomaly_detection_report(
             result_df,
@@ -370,6 +452,7 @@ def perform_anomaly_analysis_with_diffusion(
             explanation_csv_path=cfg.report_explanation_csv_path,
             max_report_pages=cfg.report_max_pages,
             consolidated_top_k=cfg.report_consolidated_top_k,
+            **({"historical_attribution": historical_result} if historical_result is not None else {}),
         )
 
     return result_df

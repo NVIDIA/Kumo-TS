@@ -3,6 +3,7 @@
 
 """Tests for anomaly-detection PDF reporting."""
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import Mock
@@ -129,7 +130,7 @@ def test_mae_note_page_explains_row_number_time_steps() -> None:
     figure = _create_mae_note_page(page_number=3, uses_row_numbers=True)
 
     assert any(
-        text.get_text()
+        " ".join(text.get_text().split())
         == "No usable timestamp column was provided, so time steps in this report are zero-based DataFrame row numbers."
         for text in figure.axes[0].texts
     )
@@ -170,6 +171,44 @@ def test_diagnosis_note_page_explains_metrics_and_likely_issue_values() -> None:
     assert "Explanation consistency" in page_text
     for issue in ["Level shift", "Trend change", "Transient spike", "Variance burst", "No supported repair"]:
         assert issue in page_text
+
+
+@pytest.mark.parametrize("diagnosis", [False, True])
+@pytest.mark.parametrize("row_numbers", [False, True])
+def test_historical_guide_preserves_existing_notes_and_fits_page(diagnosis, row_numbers):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.text import Text
+
+    settings = dict(page_number=5, include_diagnosis=diagnosis, uses_row_numbers=row_numbers)
+    original = _create_mae_note_page(**settings)
+    updated = _create_mae_note_page(**settings, include_historical=True)
+    old_texts = [text.get_text() for text in original.axes[0].texts]
+    new_texts = [text.get_text() for text in updated.axes[0].texts]
+    assert [" ".join(text.split()) for text in old_texts[1:]] == [" ".join(text.split()) for text in new_texts[1:]]
+    assert new_texts[0] == "How to interpret this report"
+    text = " ".join(t.get_text() for t in updated.findobj(Text))
+    for phrase in [
+        "Top historical times",
+        "Aligned timelines",
+        "whole interval",
+        "not a fault probability",
+        "Matching numbers",
+        "Takeaway:",
+    ]:
+        assert phrase in text
+    canvas = FigureCanvasAgg(updated)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    historical_header = next(t for t in updated.texts if t.get_text() == "Historical attribution")
+    for text in updated.axes[0].texts:
+        assert text.get_window_extent(renderer).y0 > historical_header.get_window_extent(renderer).y1
+        if text.get_text().startswith("MAE means"):
+            assert text.get_window_extent(renderer).x1 < updated.axes[0].transAxes.transform((0.49, 0))[0]
+    for text in updated.findobj(Text):
+        if text.get_text() and text.get_visible():
+            box = text.get_window_extent(renderer)
+            assert box.x0 >= 0 and box.x1 <= updated.bbox.width
+            assert box.y0 >= 0 and box.y1 <= updated.bbox.height
 
 
 def test_generate_report_includes_explainability_metrics(tmp_path: Path) -> None:
@@ -348,3 +387,247 @@ def test_large_explanation_report_uses_one_consolidated_page(monkeypatch, tmp_pa
     detailed.assert_not_called()
     assert consolidated.call_args.kwargs["max_report_pages"] == 10
     assert consolidated.call_args.kwargs["anomaly_count"] == sample_count
+
+
+@pytest.mark.parametrize("matched_control", [True, False], ids=["aligned_control", "retrieved_donor"])
+def test_historical_appendix_preserves_original_overview(tmp_path, monkeypatch, matched_control):
+    """Run replacement and write the real graphic appendix page alongside the original SDK report."""
+    import json
+
+    import matplotlib.dates as mdates
+    from matplotlib.text import Text
+    from sdk import historical_attribution as historical_reporting
+
+    count, event = 100, 80
+    positions = np.arange(count)
+    features = ["temperature", "pressure"]
+    normal = pd.DataFrame({"temperature": 20 + np.sin(positions / 7), "pressure": 100 + np.sin(positions / 5)})
+    frame = normal.copy()
+    frame.loc[60:event, "pressure"] += np.linspace(0, 6, event - 59)
+    timestamps = pd.date_range("2026-01-01", periods=count, freq="min")
+    values = frame[features].to_numpy()
+    visible = (positions // 10) % 2 != (event // 10) % 2
+
+    def infer(observations):
+        # Deterministic test callback; masked truth cannot enter this interpolation.
+        observed = np.where(visible[:, None], observations, np.nan)
+        return pd.DataFrame(observed).interpolate(limit_direction="both").to_numpy()
+
+    before = infer(values)
+    frame["timestamp"] = timestamps
+    frame["Anomaly"] = positions == event
+    frame["MAE"] = np.abs(values - before).mean(axis=1)
+    for column, value in {
+        "TopContributors": '["pressure"]',
+        "ContributionShares": "[1.0]",
+        "ExplanationCoverage": 1.0,
+        "LikelyReconstructionIssue": "Level shift",
+        "RepairImpact": 0.5,
+        "DiagnosticConfidence": "Moderate",
+        "ExplanationConsistency": "Not evaluated",
+    }.items():
+        frame[column] = pd.Series({event: value})
+    source = {"id": "normal_test_fixture", "normal_evidence": "declared normal test data"}
+    resolver = (
+        historical_reporting.AlignedNormalReference(normal, source, alignment_verified=True)
+        if matched_control
+        else historical_reporting.NearestNormalWindowRetriever(
+            normal, [(0, count)], [(0, 30)], source, same_source=False
+        )
+    )
+    request = historical_reporting.HistoricalAttributionRequest(
+        resolver=resolver, target="pressure", case_name="Historical attribution test fixture", units={"pressure": "kPa"}
+    )
+    result = historical_reporting.analyze_single_window(
+        values,
+        features,
+        frame["Anomaly"],
+        frame["MAE"],
+        before,
+        infer,
+        request,
+        visible=lambda _event: visible,
+        time_labels=timestamps,
+    )
+    assert result["status"] == "ok" and len(result["points"]) == 20
+    appendix = historical_reporting.report_data(result)
+    appendix["report_context"]["inference_note"] = (
+        "Deterministic masked-interpolation test callback; no pretrained-model inference."
+    )
+    (tmp_path / "historical_attribution_test_report.historical.json").write_text(
+        json.dumps(appendix, indent=2), encoding="utf-8"
+    )
+
+    saved_pages, page_counts = [], []
+    original_savefig = reporting.PdfPages.savefig
+
+    def capture_savefig(pdf, figure, *args: object, **kwargs: object):
+        # Observe the real writer rather than mocking away appendix generation.
+        original_savefig(pdf, figure, *args, **kwargs)
+        saved_pages.append(figure)
+        page_counts.append(pdf.get_pagecount())
+
+    monkeypatch.setattr(reporting.PdfPages, "savefig", capture_savefig)
+    original_path, attributed_path = tmp_path / "original.pdf", tmp_path / "historical_attribution_test_report.pdf"
+    settings = {"feature_columns": features, "timestamp_column": "timestamp", "feature_units": {"pressure": "kPa"}}
+    generate_anomaly_detection_report(frame, original_path, **settings)
+    original_pages = saved_pages.copy()
+    generate_anomaly_detection_report(frame, attributed_path, historical_attribution=appendix, **settings)
+    attributed_pages = saved_pages[len(original_pages) :]
+
+    def page_text(page):
+        return [text.get_text() for text in page.findobj(Text)]
+
+    assert len(original_pages) == 4
+    assert len(attributed_pages) == page_counts[-1] == len(original_pages) + 2
+    assert [page_text(page) for page in original_pages[:-1]] == [page_text(page) for page in attributed_pages[:-3]]
+    guide_text = page_text(attributed_pages[-1])
+    for text in page_text(original_pages[-1]):
+        if not text.startswith("Page "):
+            assert " ".join(text.split()) in [" ".join(value.split()) for value in guide_text]
+    assert "Top historical times" in guide_text and "Aligned timelines" in guide_text
+    assert "How to interpret this report" in guide_text
+    contribution_text = " ".join(page_text(attributed_pages[2]))
+    assert "Feature contributions" in contribution_text and "Reconstruction diagnosis" in contribution_text
+
+    historical_page, timeline_page = attributed_pages[-3:-1]
+    historical_text = " ".join(" ".join(page_text(historical_page)).split())
+    assert "Historical attribution" in historical_text and "Top-5 historical timestamps" in historical_text
+    assert "2026-01-01 01:20" in historical_text and "Historical attribution test fixture" in historical_text
+    bars = historical_page.axes[0]
+    signal, response = timeline_page.axes
+    assert response.get_xlabel().startswith("Time")
+    assert "kPa" in signal.get_ylabel()
+    start, stop = result["window"]["start"], result["window"]["stop"]
+    expected = np.abs(np.asarray(result["curves"]["after"])[start:stop] - before[start:stop, 1])
+    assert expected.sum() > 0
+    np.testing.assert_allclose(signal.lines[0].get_ydata(), values[:, 1])
+    np.testing.assert_allclose(signal.lines[0].get_xdata(), mdates.date2num(timestamps.to_pydatetime()))
+    indices = np.argsort(-expected, kind="stable")[:5]
+    expected_shares = 100 * expected[indices] / expected.sum()
+    np.testing.assert_allclose([bar.get_width() for bar in bars.patches], expected_shares)
+    for index, share in zip(indices, expected_shares, strict=True):
+        assert timestamps[start + index].strftime("%H:%M") in historical_text
+        assert f"{share:.1f}%" in historical_text
+    saved = json.loads((tmp_path / "historical_attribution_test_report.historical.json").read_text())
+    assert saved == json.loads(json.dumps(appendix))
+    assert saved["historical_result"] == json.loads(json.dumps(result))
+    assert (result["metrics"]["CAI"] is not None) == matched_control
+    assert result["metrics"]["ExplanationStability"]["reason"] == "single_donor"
+    for forbidden in ["g=1", "L=20", "gap=", "Why this target", "Top 5 sensors", "What the five metrics mean"]:
+        assert forbidden not in historical_text
+    assert attributed_path.read_bytes().startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("historical_status", [None, "ok", "unavailable"])
+@pytest.mark.parametrize("feature_count", [1, 17])
+def test_historical_appendix_counts_toward_total_page_budget(tmp_path, monkeypatch, historical_status, feature_count):
+    """Reserve the actual two-page available appendix before deciding whether to consolidate."""
+    from matplotlib.text import Text
+    from sdk.historical_attribution import (
+        AlignedNormalReference,
+        HistoricalAttributionRequest,
+        analyze_single_window,
+    )
+
+    count = 100
+    columns = [f"signal_{i}" for i in range(feature_count)]
+    features = pd.DataFrame(np.arange(count * feature_count).reshape(count, feature_count) / 10, columns=columns)
+    flags = np.arange(count) < 49
+    frame = features.assign(
+        Anomaly=flags,
+        MAE=np.linspace(0.1, 1, count),
+        TopContributors=json.dumps(columns[:1]),
+        ContributionShares="[1.0]",
+        ExplanationCoverage=1.0,
+    )
+    historical = None
+    if historical_status == "unavailable":
+        historical = dict(status="unavailable", reason="no_acceptable_replacement", case_name="Test fixture")
+    elif historical_status == "ok":
+        values = features.to_numpy()
+
+        def infer(data):
+            return np.roll(data, 1, axis=0) * 0.5
+
+        request = HistoricalAttributionRequest(
+            resolver=AlignedNormalReference(features * 0.7, {"id": "normal"}, True),
+            event_position=40,
+            target=columns[0],
+            validation_repeats=False,
+        )
+        historical = analyze_single_window(
+            values,
+            columns,
+            flags,
+            frame.MAE,
+            infer(values),
+            infer,
+            request,
+            visible=lambda p: np.arange(count) % 2 != p % 2,
+        )
+        assert historical["status"] == "ok"
+    pages = []
+    savefig = reporting.PdfPages.savefig
+
+    def capture(pdf, figure, *args: object, **kwargs: object):
+        savefig(pdf, figure, *args, **kwargs)
+        pages.append(figure)
+        assert pdf.get_pagecount() <= 10
+
+    monkeypatch.setattr(reporting.PdfPages, "savefig", capture)
+    destination = tmp_path / "budget.pdf"
+    generate_anomaly_detection_report(
+        frame,
+        destination,
+        feature_columns=columns,
+        max_report_pages=10,
+        historical_attribution=historical,
+    )
+    expected = {1: {None: 10, "ok": 6, "unavailable": 5}, 17: {None: 8, "ok": 10, "unavailable": 9}}
+    assert len(pages) == expected[feature_count][historical_status]
+    texts = [" ".join(t.get_text() for t in page.findobj(Text)) for page in pages]
+    assert "Kumo-Anomaly Report" in texts[0]
+    for number, text in enumerate(texts, 1):
+        assert f"Page {number}" in text
+    assert "MAE" in texts[-1]
+    if historical_status is not None:
+        assert "Historical attribution" in texts[-2]
+    if historical_status == "ok":
+        assert "Top-5 historical" in texts[-3]
+        assert "Measured signal and historical response" in texts[-2]
+        assert "How to interpret this report" in texts[-1]
+        assert "What the five metrics mean" not in texts[-1]
+    if historical_status == "unavailable":
+        assert "Not available: no_acceptable_replacement" in texts[-2]
+
+
+@pytest.mark.parametrize("historical_status,explanations", [("ok", True), ("unavailable", True)])
+def test_page_budget_rejects_impossible_historical_appendix(tmp_path, historical_status, explanations):
+    frame = _report_frame()
+    if explanations:
+        frame = frame.assign(TopContributors='["pressure"]', ContributionShares="[1.0]", ExplanationCoverage=1.0)
+    historical = dict(status=historical_status, case_name="Test fixture", reason="no_acceptable_replacement")
+    destination = tmp_path / "too_small.pdf"
+    with pytest.raises(ValueError, match="cannot accommodate the required"):
+        generate_anomaly_detection_report(frame, destination, historical_attribution=historical, max_report_pages=4)
+    assert not destination.exists()
+    assert not (tmp_path / "too_small_explanations.csv").exists()
+
+
+def test_unavailable_historical_appendix_fits_four_page_minimum_without_explanations(tmp_path, monkeypatch):
+    pages = []
+    savefig = reporting.PdfPages.savefig
+
+    def capture(pdf, figure, *args: object, **kwargs: object):
+        savefig(pdf, figure, *args, **kwargs)
+        pages.append(pdf.get_pagecount())
+
+    monkeypatch.setattr(reporting.PdfPages, "savefig", capture)
+    generate_anomaly_detection_report(
+        _report_frame(),
+        tmp_path / "minimal.pdf",
+        max_report_pages=4,
+        historical_attribution=dict(status="unavailable", reason="no_sdk_anomaly"),
+    )
+    assert pages == [1, 2, 3, 4]

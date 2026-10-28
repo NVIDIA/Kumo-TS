@@ -149,6 +149,46 @@ generate_anomaly_detection_report(
 The standalone reporter auto-detects common timestamp and ground-truth names
 (`timestamp`, `GT`, `ground_truth`, `is_anomaly`, and `label`).
 
+### Historical attribution (explainability part 2)
+
+Pass a `HistoricalAttributionRequest` to explain how reconstruction responds to
+replacing a block of earlier observations with a verified normal reference or
+retrieved normal history. The request supports target-only, all-feature, and
+selected-feature replacement, interchangeable similarity strategies, and
+independent evaluation of multiple donors.
+
+```python
+from sdk.anomaly_analysis import ADDiffusionConfig, perform_anomaly_analysis_with_diffusion
+from sdk.historical_attribution import AlignedNormalReference, HistoricalAttributionRequest
+
+request = HistoricalAttributionRequest(
+    resolver=AlignedNormalReference(
+        normal_features,  # Verified normal data aligned to the input feature matrix.
+        source={"id": "verified_normal_reference"},
+        alignment_verified=True,
+    ),
+)
+results = perform_anomaly_analysis_with_diffusion(
+    df,
+    threshold_strategy="scs",
+    historical_attribution=request,
+    sdk_config=ADDiffusionConfig(report_path="output/pdf/kumo-anomaly-report.pdf"),
+)
+attribution = results.attrs["historical_attribution"]
+```
+
+This opt-in analysis runs additional inference and reports Historical Impact,
+Target Reconstruction Improvement, Control-Adjusted Impact, Explanation
+Stability, and Historical Contribution Share. Missing controls or comparisons
+remain explicitly unavailable. These metrics describe model sensitivity, not
+physical causation.
+
+When PDF reporting is enabled, attribution adds ranking and timeline pages
+within the report's page budget, plus a `.historical.json` companion. Omitting
+the request preserves the existing inference path. See the
+[historical attribution guide](sdk/README_HISTORICAL_ATTRIBUTION.md) for reference
+requirements, retrieval, replacement strategies, and metric definitions.
+
 ## Pretrained Weights
 
 The pretrained Kumo-Anomaly model is hosted on Hugging Face:
@@ -414,6 +454,9 @@ from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 - **sdk_config** (ADDiffusionConfig|str|Path, optional): Explainability and
   reporting configuration object or path to an SDK YAML file. The default
   disables explanations, reconstruction diagnosis, and PDF generation.
+- **historical_attribution** (HistoricalAttributionRequest, optional): Normal
+  reference, event, and replacement settings for historical attribution. Results
+  are returned in `DataFrame.attrs["historical_attribution"]`.
 
 ### Advanced Usage
 
