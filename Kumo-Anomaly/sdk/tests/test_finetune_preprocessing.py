@@ -263,10 +263,23 @@ def test_public_inference_automatically_uses_checkpoint_transform(monkeypatch) -
     assert result["feature_names"] == ["sensor_a", "sensor_b"]
 
 
-def test_public_inference_without_metadata_keeps_generic_preprocessing(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "dataset, saved_args, preprocessing, external, expected_window, expected_split",
+    [
+        ({}, {}, None, None, 100, 4),
+        ({"window_length": 60, "split": 10}, {}, None, None, 60, 10),
+        ({"window_length": 60, "split": 10}, {"split": 4}, None, None, 60, 4),
+        ({"window_length": 60, "split": 10}, {}, {"window_length": 40, "split": 4}, "external", 40, 4),
+    ],
+)
+def test_public_inference_without_metadata_keeps_generic_preprocessing(
+    monkeypatch, dataset, saved_args, preprocessing, external, expected_window, expected_split
+) -> None:
     checkpoint = {
         "model": {},
-        "config": {"model": {"target_dim": 2}, "dataset": {"scale_factor": 7.0}},
+        "config": {"model": {"target_dim": 2}, "dataset": {"scale_factor": 7.0, **dataset}},
+        "args": saved_args,
+        "preprocessing": preprocessing,
     }
 
     class DummyModel:
@@ -293,8 +306,27 @@ def test_public_inference_without_metadata_keeps_generic_preprocessing(monkeypat
     monkeypatch.setattr(inference_ad, "evaluate_ad_tesseract2", lambda *_args, **_kwargs: {})
 
     data = pd.DataFrame({"sensor_a": [1.0], "sensor_b": [2.0]})
-    result = inference_ad.inference_ad_tesseract2(data, model_path="pretrained.pth")
+    result = inference_ad.inference_ad_tesseract2(data, model_path="pretrained.pth", preprocess_model_dir=external)
 
     assert captured["args"] == (data, 2)
-    assert captured["kwargs"] == {"scale_factor": 7.0, "model_dir": None}
+    assert captured["kwargs"] == {
+        "scale_factor": 7.0,
+        "model_dir": external,
+        "window_length": expected_window,
+        "split": expected_split,
+    }
     assert result["target_dim"] == 2
+
+
+def test_configured_windows_and_complementary_masks_match_worker_loaders() -> None:
+    data = pd.DataFrame({"a": np.arange(120, dtype=float), "b": np.arange(120, dtype=float)})
+    single = inference_ad.get_dataloader(data, 2, window_length=60, split=10, scale_factor=7)
+    transformed = inference_ad.preprocess_dataframe(data, 2, scale_factor=7)
+    indexes = inference_ad._build_window_indexes(len(data), 60, 1)
+    windows = inference_ad._build_window_tensor(transformed.numpy(), indexes, 60)
+    worker = inference_ad.get_dataloader_from_windows(windows, split=10)
+    for single_loader, worker_loader in zip(single, worker, strict=True):
+        single_batch = next(iter(single_loader))
+        worker_batch = next(iter(worker_loader))
+        assert torch.equal(single_batch["observed_data"], worker_batch["observed_data"])
+        assert torch.equal(single_batch["gt_mask"], worker_batch["gt_mask"])

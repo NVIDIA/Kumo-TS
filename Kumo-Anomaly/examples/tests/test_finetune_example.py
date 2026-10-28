@@ -155,3 +155,46 @@ def test_cli_flags_override_run_config_asset_options(monkeypatch, tmp_path):
     args = finetune_example.parse_args()
 
     assert args.pretrained_model == "from_cli.pth"
+
+
+def test_finetune_saves_effective_window_settings_and_training_preprocessing(tmp_path, monkeypatch):
+    args = finetune_example._build_parser().parse_args(
+        [
+            "--csv",
+            "unused.csv",
+            "--epochs",
+            "1",
+            "--window-length",
+            "4",
+            "--split",
+            "2",
+            "--scale-factor",
+            "7",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    config = {"model": {"target_dim": 2}, "dataset": {"window_length": 100, "split": 10}}
+    train = np.arange(40, dtype=np.float32).reshape(20, 2)
+    val = train + 100
+    monkeypatch.setattr(finetune_example, "resolve_model_assets", lambda _args: ("model.pth", "config.yaml"))
+    monkeypatch.setattr(finetune_example, "load_checkpoint_and_config", lambda *_args: ({}, config))
+    monkeypatch.setattr(finetune_example, "split_arrays", lambda _args: (train, val, ["a", "b"]))
+    monkeypatch.setattr(finetune_example, "get_device", lambda *_args: torch.device("cpu"))
+    monkeypatch.setattr(finetune_example, "TSDiffuser_Generic", lambda *_args, **_kwargs: torch.nn.Linear(2, 2))
+    monkeypatch.setattr(finetune_example, "load_state_dict", lambda *_args: None)
+    monkeypatch.setattr(finetune_example, "train_one_epoch", lambda *_args: 1.0)
+    monkeypatch.setattr(finetune_example, "validate", lambda *_args: 0.5)
+
+    finetune_example.main_worker(0, 1, args)
+
+    expected = {"window_length": 4, "split": 2, "scale_factor": 7.0}
+    saved_config = yaml.safe_load((tmp_path / "finetune_config.yaml").read_text())
+    assert saved_config["dataset"] == expected
+    for name in ("best_finetuned_model.pth", "final_finetuned_model.pth"):
+        checkpoint = torch.load(tmp_path / name, weights_only=False)
+        assert checkpoint["config"]["dataset"] == expected
+        for key, value in expected.items():
+            assert checkpoint["preprocessing"][key] == value
+        restored = finetune_example.FeatureAdapter.from_metadata(checkpoint["preprocessing"])
+        assert torch.all(restored.transform(val) > 7)

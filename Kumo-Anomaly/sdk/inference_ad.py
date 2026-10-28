@@ -533,6 +533,7 @@ def get_dataloader(
     domain=None,
     model_dir=None,
     requires_preprocessing=True,
+    window_length=100,
 ):
     """
     Create data loaders for inference.
@@ -542,6 +543,7 @@ def get_dataloader(
         target_dim (int): Target dimensionality
         batch_size (int): Batch size for data loaders
         window_split (int): Split factor for windows
+        window_length (int): Number of observations in each window
         split (int): Number of splits for masking
 
     Returns:
@@ -555,6 +557,7 @@ def get_dataloader(
     """
     # Create test datasets
     test_args = {
+        "window_length": window_length,
         "window_split": window_split,
         "split": split,
         "scale_factor": scale_factor,
@@ -663,6 +666,7 @@ def _get_finetune_window_settings(
     checkpoint: dict,
     config: dict,
 ) -> tuple[int, int]:
+    """Resolve shared inference window settings, including legacy CLI overrides."""
     checkpoint_args = checkpoint.get("args", {})
     if not isinstance(checkpoint_args, dict):
         checkpoint_args = {}
@@ -1271,6 +1275,9 @@ def inference_ad_tesseract2(
 
     target_dim = config["model"].get("target_dim", 40)
     scale_factor = config.get("dataset", {}).get("scale_factor", 1.0)
+    window_length, split = _get_finetune_window_settings(
+        _get_checkpoint_preprocessing(checkpoint) or {}, checkpoint, config
+    )
     checkpoint_data = _apply_checkpoint_preprocessing(
         data,
         checkpoint,
@@ -1317,7 +1324,12 @@ def inference_ad_tesseract2(
         )
     else:
         test_loader1, test_loader2 = get_dataloader(
-            data, target_dim, scale_factor=scale_factor, model_dir=preprocess_model_dir
+            data,
+            target_dim,
+            scale_factor=scale_factor,
+            model_dir=preprocess_model_dir,
+            window_length=window_length,
+            split=split,
         )
 
     # Run inference with DPM support
@@ -1431,9 +1443,10 @@ def inference_ad_tesseract2_mp(
 
     target_dim = config["model"].get("target_dim", 40)
     scale_factor = config.get("dataset", {}).get("scale_factor", 1.0)
-    window_length = config.get("dataset", {}).get("window_length", 100)
     window_split = 1
-    split = config.get("dataset", {}).get("split", 4)
+    window_length, split = _get_finetune_window_settings(
+        _get_checkpoint_preprocessing(checkpoint) or {}, checkpoint, config
+    )
     checkpoint_data = _apply_checkpoint_preprocessing(
         data,
         checkpoint,
