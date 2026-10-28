@@ -257,6 +257,36 @@ def test_generate_report_includes_explainability_metrics(tmp_path: Path) -> None
     assert exported.loc[0, "Explanation coverage"] == 1.0
 
 
+@pytest.mark.parametrize(
+    ("share", "diagnosis", "expected"),
+    [(0.08, True, "8%"), (0.08, False, "vibration\n8%"), (0.01, True, None), (0.5, True, "vibration\n50%")],
+)
+def test_contribution_labels_fit_bars_without_overlapping_coverage(share, diagnosis, expected):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    figure = _create_contribution_graph_page(
+        [("2026-10-28 11:44", "temperature\nvibration", f"{100 * (1 - share)}%\n{100 * share}%", "100.0%")],
+        page_number=3,
+        graph_page_number=1,
+        graph_page_count=1,
+        feature_colors={"temperature": "#175CD3", "vibration": "#F79009"},
+        diagnosis_rows=[("Trend change", "1.9%", "Low", "Not evaluated")] if diagnosis else None,
+    )
+    axis = figure.axes[0]
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    label = next((text for text in axis.texts if np.isclose(text.get_position()[0], 1 - share / 2)), None)
+    assert (label.get_text() if label else None) == expected
+    if label is not None:
+        bounds = label.get_window_extent(renderer)
+        bar = axis.patches[1].get_window_extent(renderer)
+        coverage = next(text for text in axis.texts if text.get_text().endswith(" covered"))
+        assert bar.x0 <= bounds.x0 <= bounds.x1 <= bar.x1
+        assert bar.y0 <= bounds.y0 <= bounds.y1 <= bar.y1
+        assert bounds.x1 < coverage.get_window_extent(renderer).x0
+
+
 def test_report_adds_simplified_reconstruction_diagnosis_without_raw_scores(tmp_path: Path) -> None:
     frame = _report_frame()
     frame["TopContributors"] = ["[]"] * len(frame)

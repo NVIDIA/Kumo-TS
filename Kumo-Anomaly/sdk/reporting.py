@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
+from matplotlib.font_manager import FontProperties
+from matplotlib.textpath import TextToPath
 
 if TYPE_CHECKING:
     from collections.abc import Hashable, Sequence
@@ -436,6 +438,10 @@ def _create_contribution_graph_page(
 ) -> Figure:
     figure = Figure(figsize=(11.0, 8.5), facecolor="white")
     axis = figure.add_axes((0.20, 0.14, 0.44 if diagnosis_rows is not None else 0.72, 0.66))
+    axis.set_xlim(0.0, 1.15)
+    points_per_share = axis.get_position().width * figure.get_figwidth() * 72 / np.ptp(axis.get_xlim())
+    label_font = FontProperties(size=6.5, weight="bold")
+    text_metrics = TextToPath()
     figure.suptitle(
         f"Feature contributions and diagnosis by anomaly ({graph_page_number}/{graph_page_count})",
         x=0.07,
@@ -496,16 +502,23 @@ def _create_contribution_graph_page(
         for contributor, share in zip(contributors, shares, strict=True):
             color = feature_colors[contributor]
             axis.barh(y_position, share, left=left, height=0.58, color=color, edgecolor="white", linewidth=0.8)
-            if share >= 0.075:
+            percentage = f"{share:.0%}"
+            available_width = share * points_per_share - 2
+            if text_metrics.get_text_width_height_descent(percentage, label_font, ismath=False)[0] <= available_width:
                 display_name = contributor if len(contributor) <= 14 else f"{contributor[:12]}..."
+                label = percentage
+                if (
+                    text_metrics.get_text_width_height_descent(display_name, label_font, ismath=False)[0]
+                    <= available_width
+                ):
+                    label = f"{display_name}\n{percentage}"
                 axis.text(
                     left + share / 2,
                     y_position,
-                    f"{display_name}\n{share:.0%}",
+                    label,
                     ha="center",
                     va="center",
-                    fontsize=6.5,
-                    fontweight="bold",
+                    fontproperties=label_font,
                     color="#101828" if color == "#F79009" else "white",
                     linespacing=0.9,
                 )
@@ -545,7 +558,6 @@ def _create_contribution_graph_page(
 
     axis.set_yticks(y_positions, labels=y_labels)
     axis.set_ylim(-0.75, MAX_EXPLANATIONS_PER_PAGE - 0.25)
-    axis.set_xlim(0.0, 1.15)
     axis.set_xticks(np.linspace(0.0, 1.0, 6), labels=[f"{value:.0%}" for value in np.linspace(0.0, 1.0, 6)])
     axis.set_xlabel("Contribution share of total reconstruction error", fontsize=9, color="#344054")
     axis.grid(axis="x", color="#D8DEE9", linewidth=0.6, alpha=0.8)
