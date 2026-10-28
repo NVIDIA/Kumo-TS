@@ -1672,6 +1672,8 @@ def run_sdk_attribution(
     auto_select_target = request.event_source == "sdk" and request.target is None and np.any(flags)
     if auto_select_target:
         p = int(np.flatnonzero(flags)[0] if request.event_position is None else request.event_position)
+        if not 0 <= p < len(frame) or not flags[p]:
+            raise ValueError("Requested event must be an actual SDK anomaly")
         target = int(np.argmax(np.abs(np.asarray(native["target"])[p, :f] - np.asarray(native["recon"])[p, :f])))
         selected_request = replace(request, target=frame.columns[target])
 

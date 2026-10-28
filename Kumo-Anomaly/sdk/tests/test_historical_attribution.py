@@ -1483,6 +1483,82 @@ def _mock_public_sdk(tmp_path, monkeypatch, features, *, flags=None, errors=None
     return sdk, calls, native
 
 
+@pytest.mark.parametrize("event_position", [-1, 100, 100_000, 79])
+def test_automatic_target_rejects_invalid_event_before_indexing(tmp_path, monkeypatch, event_position):
+    features = pd.DataFrame(np.arange(200).reshape(100, 2) / 10, columns=["a", "b"])
+    sdk, calls, _ = _mock_public_sdk(tmp_path, monkeypatch, features)
+    request = HistoricalAttributionRequest(event_position=event_position, target=None, validation_repeats=False)
+    with pytest.raises(ValueError, match="Requested event must be an actual SDK anomaly"):
+        sdk.perform_anomaly_analysis_with_diffusion(features, threshold_strategy="macs", historical_attribution=request)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("time_kind", ["mixed_offset_column", "dateutil_named_index", "dateutil_fixed_index"])
+@pytest.mark.parametrize("include_historical", [False, True])
+def test_public_reports_preserve_instants_for_nonportable_timezones(
+    tmp_path, monkeypatch, time_kind, include_historical
+):
+    from dateutil import tz
+    from sdk import reporting
+
+    expected_times = pd.date_range("2026-11-01 08:30", periods=100, freq="min", tz="UTC")
+    features = pd.DataFrame(np.arange(300).reshape(100, 3) / 10, columns=["a", "b", "c"])
+    if time_kind == "dateutil_named_index":
+        features.index = expected_times.tz_convert(tz.gettz("America/Los_Angeles"))
+    elif time_kind == "dateutil_fixed_index":
+        features.index = expected_times.tz_convert(tz.tzoffset("IST", 19_800))
+    frame = features.copy()
+    if time_kind == "mixed_offset_column":
+        frame["timestamp"] = [value.isoformat() for value in expected_times.tz_convert("America/Los_Angeles")]
+    sdk, calls, _ = _mock_public_sdk(tmp_path, monkeypatch, features)
+    request = (
+        HistoricalAttributionRequest(
+            resolver=AlignedNormalReference(features * 0.7, {"id": "normal"}, True),
+            event_position=80,
+            target="b",
+            validation_repeats=False,
+        )
+        if include_historical
+        else None
+    )
+    pages = []
+    savefig = reporting.PdfPages.savefig
+
+    def capture_page(pdf, figure, *args: object, **kwargs: object):
+        savefig(pdf, figure, *args, **kwargs)
+        pages.append(figure)
+
+    monkeypatch.setattr(reporting.PdfPages, "savefig", capture_page)
+    destination = tmp_path / "timezone-report.pdf"
+    output = sdk.perform_anomaly_analysis_with_diffusion(
+        frame,
+        threshold_strategy="macs",
+        historical_attribution=request,
+        sdk_config=sdk.ADDiffusionConfig(report_path=destination),
+    )
+    assert destination.read_bytes().startswith(b"%PDF")
+    axis = reporting.resolve_time_axis(frame, "timestamp" if "timestamp" in frame else None)
+    assert axis["timezone"] == "UTC"
+    assert axis["label"].endswith(" (UTC)")
+    pd.testing.assert_index_equal(pd.DatetimeIndex(pd.to_datetime(axis["values"], utc=True)), expected_times)
+    expected_x = mdates.date2num(expected_times.to_pydatetime())
+    overview = next(axis for axis in pages[0].axes if axis.get_ylabel() == "MAE")
+    np.testing.assert_allclose(mdates.date2num(overview.lines[0].get_xdata()), expected_x)
+    if include_historical:
+        result = json.loads(destination.with_suffix(".historical.json").read_text())
+        assert result == output.attrs["historical_attribution"]
+        assert result["time_axis"] == axis
+        assert result["event"]["time"] == str(expected_times[80])
+        assert historical_axis(report_data(result))["alarm_x"] == pytest.approx(expected_x[80])
+        signal, response = pages[-2].axes
+        np.testing.assert_allclose(signal.lines[0].get_xdata(), expected_x)
+        np.testing.assert_allclose(response.collections[1].get_offsets()[:, 0], expected_x[60:80])
+        assert response.get_xlabel().endswith(" (UTC)")
+    else:
+        assert "historical_attribution" not in output.attrs
+        assert len(calls) == 1
+
+
 @pytest.mark.parametrize(
     "time_kind", ["datetime_column", "datetime_index", "numeric_time", "row_position", "invalid_time"]
 )

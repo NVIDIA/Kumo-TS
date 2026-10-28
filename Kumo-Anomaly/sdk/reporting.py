@@ -100,10 +100,29 @@ def resolve_time_axis(df: pd.DataFrame, timestamp_column: str | None = None) -> 
         if timestamp_column is not None and pd.api.types.is_numeric_dtype(df[timestamp_column])
         else "row_position"
     )
+    timezone = None
+    normalized_to_utc = False
     if is_datetime:
+        # A DST-spanning ISO column may parse as objects with mixed offsets.
+        # Normalize those instants before using the datetime accessor.
+        if not pd.api.types.is_datetime64_any_dtype(values):
+            values = pd.to_datetime(values, utc=True)
+            normalized_to_utc = True
+        if values.dt.tz is not None:
+            timezone = str(values.dt.tz)
+            try:
+                pd.Timestamp(0, tz="UTC").tz_convert(timezone)
+            except (KeyError, TypeError, ValueError):
+                # dateutil tzfile/tzoffset reprs are not portable timezone names.
+                # UTC preserves every instant and survives JSON round-tripping.
+                timezone = "UTC"
+                values = values.dt.tz_convert(timezone)
+                normalized_to_utc = True
         first, last = pd.Timestamp(values.iloc[0]), pd.Timestamp(values.iloc[-1])
         if first.date() == last.date() and last - first <= pd.Timedelta(minutes=5):
             label = f"Time ({first:%Y-%m-%d})"
+        if normalized_to_utc:
+            label += " (UTC)"
     return dict(
         kind=kind,
         values=[str(pd.Timestamp(value)) for value in values] if is_datetime else np.asarray(values).tolist(),
@@ -114,7 +133,7 @@ def resolve_time_axis(df: pd.DataFrame, timestamp_column: str | None = None) -> 
         if is_datetime
         else "row_position",
         position_base=0,
-        timezone=str(values.dt.tz) if is_datetime and values.dt.tz is not None else None,
+        timezone=timezone,
     )
 
 
