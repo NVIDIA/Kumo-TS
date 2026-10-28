@@ -338,6 +338,12 @@ Fine-tuned checkpoints contain the fitted feature-column order, min-max statisti
 scale factor, and window settings. The SDK replays that preprocessing automatically instead of fitting a new
 transform on each inference batch. Extra columns are ignored, while missing training features produce a clear error.
 
+Single-device and multi-GPU inference use the same saved window length and mask split. Checkpoint preprocessing
+metadata takes precedence, followed by saved fine-tuning arguments and then the model dataset config
+(defaults: window length 100, split 4). An explicit `preprocess_model_dir` overrides the feature transform,
+while retaining these saved window settings. Fine-tuning writes effective CLI overrides to both checkpoints
+and `finetune_config.yaml`.
+
 Run anomaly detection with the fine-tuned checkpoint. The SDK selects the feature columns recorded during fine-tuning;
 dropping timestamp, label, and other metadata columns explicitly is still recommended for clarity.
 
