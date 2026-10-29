@@ -50,11 +50,14 @@ sys.path.append("/path/to/Kumo-Anomaly")
 from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 
 df = pd.read_csv("your_data.csv")
+# Replace these names with the signal columns in your dataset.
+# Do not include timestamps, ground-truth labels, or other metadata.
+analysis_df = df[["sensor_1", "sensor_2", "sensor_3"]].copy()
 
 # Perform anomaly detection — omit model_path/model_config_path to auto-download
 # the pretrained weights from Hugging Face (nvidia/Kumo-Anomaly).
 results = perform_anomaly_analysis_with_diffusion(
-    df=df,
+    df=analysis_df,
     threshold_strategy="scs",  # or "macs"
     # model_path="path/to/your/model.pth",         # optional; defaults to final_model.pth
     # model_config_path="path/to/config.yaml",     # optional; defaults to curriculum_medium.yaml
@@ -64,6 +67,23 @@ results = perform_anomaly_analysis_with_diffusion(
 )
 print(f"Detected {results['Anomaly'].sum()} anomalies")
 ```
+
+### Input metadata limitation
+
+For pretrained inference, pass only signal columns, as in the quickstart above.
+Numeric timestamps and binary labels are metadata, even though they can pass numeric
+input validation. In 1.0.1, the SDK automatically identifies and excludes timestamp
+and ground-truth columns only when `report_path` or `historical_attribution` is set.
+Otherwise those columns can enter the model and change anomaly scores and detections.
+This behavior predates 1.0.1.
+
+Use the same signal columns and configuration when comparing runs. When passing a
+signal-only frame, leave `timestamp_column` and `ground_truth_column` unset in the
+SDK config. To retain metadata for report plots or `event_source="dataset_label"`,
+pass the full frame with the appropriate reporting/attribution settings and explicitly
+configure its metadata column names; use those same settings in the detection run
+from which you select an event. Fine-tuned checkpoints with a saved feature schema
+select their recorded training features automatically.
 
 `feature_embedding_mode` defaults to `shared_mean_norm_matched_zero_pad`, which
 shares a norm-matched checkpoint embedding across active features and zeros only
@@ -143,6 +163,13 @@ residual, replacing a block with `length=20`, `gap=1`, `blend_points=2`, and
 `scope="target"`. Override `event_position` and `target` with an actual alarm and
 original feature key; `scope="all"` or `scope="signals", signals=[...]` controls
 which features are replaced. Supply sensor units through `units={feature: unit}`.
+An explicit SDK `event_position` must be flagged in the attribution run itself.
+Select it using the same input features, checkpoint, inference settings, and
+`sdk_config` (including reporting/metadata settings). An event from a plain run
+that included metadata as features may be rejected with "Requested event must be
+an actual SDK anomaly". Omit `event_position` to select the first anomaly from the
+attribution run automatically.
+
 For an explicitly labelled event, set `event_source="dataset_label"` with a positive
 binary ground-truth label, explicit position, and target.
 
@@ -450,7 +477,9 @@ while retaining these saved window settings. Fine-tuning writes effective CLI ov
 and `finetune_config.yaml`.
 
 Run anomaly detection with the fine-tuned checkpoint. The SDK selects the feature columns recorded during fine-tuning;
-dropping timestamp, label, and other metadata columns explicitly is still recommended for clarity.
+exclude timestamp, label, and other metadata columns from the signal matrix explicitly.
+For pretrained inference without a saved feature schema, this is necessary to avoid
+the detection differences described in [Input metadata limitation](#input-metadata-limitation).
 
 ```python
 analysis_df = df.select_dtypes(include="number").drop(columns=["is_anomaly"], errors="ignore")

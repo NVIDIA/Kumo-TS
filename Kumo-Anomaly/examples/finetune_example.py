@@ -54,7 +54,7 @@ from sdk.inference_ad import (
     load_config,
 )
 
-LOGGER = logging.getLogger("ad_diffusion_finetune")
+LOGGER = logging.getLogger("kumo_anomaly_finetune")
 
 
 def find_free_port() -> int:

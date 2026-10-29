@@ -46,6 +46,10 @@ Changes since v1.0.0. Release date will be recorded when published.
 - Anomaly output remains int64 (`0` = normal, `1` = anomaly). Explanation and historical attribution are opt-in.
 - Missingness-aware forecasting is inference-only in this release and cannot be combined with forecasting interpretability.
 
+### Known issues
+
+- Pretrained anomaly inference identifies and excludes timestamp/ground-truth columns only when reporting or historical attribution is enabled. Otherwise numeric metadata (including datetime values converted to epoch numbers) can enter the model and alter detections. Pass signal-only inputs consistently, or retain identical reporting/attribution metadata settings when selecting and explaining events. Fine-tuned checkpoints with saved feature schemas select their recorded features. See the [input metadata guidance](Kumo-Anomaly/README.md#input-metadata-limitation). This behavior predates 1.0.1; this release documents the workaround without changing detection behavior.
+
 ## v1.0.0 - 2026-09-21
 
 Changes since v0.1.0.
