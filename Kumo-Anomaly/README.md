@@ -36,24 +36,9 @@ uv sync
 uv run python your_script.py
 ```
 
-Explainability and reporting use a YAML configuration. Copy the fully commented
-template at `sdk/sdk_config.yaml` and enable the required settings:
-
-```yaml
-sdk:
-  explain: true
-  explanation_top_k: 3
-  diagnose_reconstruction: true
-  report_path: output/pdf/anomaly_detection_report.pdf
-  timestamp_column: timestamp
-  ground_truth_column: GT
-  report_title: Anomaly Detection Report
-  report_explanation_csv_path: output/pdf/anomaly_detection_report_explanations.csv
-  report_max_pages: 10
-  report_consolidated_top_k: 5
-```
-
-Pass the YAML file to the SDK:
+Copy [sdk/sdk_config.yaml](sdk/sdk_config.yaml) and pass it to the SDK.
+The [explainability and reporting](#explainability-and-reporting) settings below
+control the optional explanations and PDF output.
 
 ```python
 import os
@@ -88,66 +73,174 @@ original position-specific feature embeddings.
 The same embedding mode is used for the original inference and every repair
 re-scoring pass when reconstruction diagnosis is enabled.
 
-`ADDiffusionConfig` remains available when configuration must be constructed
-programmatically instead of loaded from YAML:
+## Explainability and reporting
+
+Part 1 explains reconstruction errors and tests repair hypotheses. Part 2 measures
+how reconstruction responds to replacing earlier observations with normal history.
+Both describe model behavior and sensitivity; neither establishes physical causation.
+They are optional and can be used together in the same SDK call and report.
+
+Use YAML or an `ADDiffusionConfig` object for part 1 and reporting settings:
+
+```yaml
+sdk:
+  explain: true
+  explanation_top_k: 3
+  diagnose_reconstruction: true
+  report_path: output/pdf/kumo-anomaly-report.pdf
+  timestamp_column: timestamp
+  ground_truth_column: GT
+  report_title: Kumo-Anomaly Report
+  report_explanation_csv_path: output/pdf/kumo-anomaly-report_explanations.csv
+  report_max_pages: 10
+  report_consolidated_top_k: 5
+```
+
+### Part 1: Reconstruction attribution and diagnosis
+
+`explain=True` adds `TopContributors`, `ContributionShares`, `ExplanationCoverage`,
+and `ExplanationMethod` from the existing target and reconstruction, without another
+inference pass. Directly mapped features retain their original names. Padding is
+excluded from MAE, L2, thresholding, and shares; low-level results expose
+`valid_feature_mask` and `score_feature_count` while retaining full-width `target`
+and `recon`. PCA or engineered features use `component_N` labels.
+
+`diagnose_reconstruction=True` requires `explain=True` and directly mapped inputs
+without an external preprocessing model. Four additional inference passes test
+level-shift, trend-change, transient-spike, and variance-burst repairs, returning
+`LikelyReconstructionIssue`, `RepairImpact`, `DiagnosticConfidence`, and
+`ExplanationConsistency`.
+
+### Part 2: Historical attribution
+
+Pass `historical_attribution=HistoricalAttributionRequest(...)` directly to the SDK;
+it is independent of the YAML explanation switches and runs additional inference.
+Supply a verified normal reference aligned to the input's feature order, rows,
+and units, excluding timestamp and label columns from the reference feature matrix:
 
 ```python
-from sdk.anomaly_analysis import ADDiffusionConfig
+from sdk.anomaly_analysis import ADDiffusionConfig, perform_anomaly_analysis_with_diffusion
+from sdk.historical_attribution import AlignedNormalReference, HistoricalAttributionRequest
 
-sdk_config = ADDiffusionConfig(
-    explain=True,
-    explanation_top_k=3,
-    diagnose_reconstruction=True,
+request = HistoricalAttributionRequest(
+    resolver=AlignedNormalReference(
+        normal_features,  # Verified normal data aligned to the input feature matrix.
+        source={"id": "verified_normal_reference"},
+        alignment_verified=True,
+    ),
+)
+results = perform_anomaly_analysis_with_diffusion(
+    df,
+    threshold_strategy="scs",
+    historical_attribution=request,
+    sdk_config=ADDiffusionConfig(explain=True, report_path="output/pdf/kumo-anomaly-report.pdf"),
+)
+attribution = results.attrs["historical_attribution"]
+```
+
+Defaults select the first SDK anomaly and the feature with its largest SDK-scaled
+residual, replacing a block with `length=20`, `gap=1`, `blend_points=2`, and
+`scope="target"`. Override `event_position` and `target` with an actual alarm and
+original feature key; `scope="all"` or `scope="signals", signals=[...]` controls
+which features are replaced. Supply sensor units through `units={feature: unit}`.
+For an explicitly labelled event, set `event_source="dataset_label"` with a positive
+binary ground-truth label, explicit position, and target.
+
+Attribution requires direct feature mapping; PCA and external preprocessing models
+are unsupported. Fine-tuned checkpoints retain their training feature order,
+min/max scaling, and window settings. Reference and donor frames must use that
+training schema; extra serving columns are excluded from attribution.
+
+#### Normal-history retrieval and multiple donors
+
+Without an aligned reference, use a declared normal-history bank. Retrieval ranks
+eligible donors separately from acceptance; normalized MAE is the default ranking
+and has no distance cutoff. Cosine and Euclidean distances are also available:
+
+```python
+from dataclasses import replace
+from sdk.historical_attribution import (
+    CosineDistance, EuclideanDistance, LinearBlendReplacement,
+    MultiDonorReplacement, NearestNormalWindowRetriever,
+)
+
+retriever = NearestNormalWindowRetriever(
+    normal_bank_features,
+    normal_intervals=normal_intervals,
+    calibration_intervals=calibration_intervals,
+    source=normal_source,  # Include an identifier and verified normal_evidence.
+    same_source=False,    # Only for a separate normal trajectory.
+    top_n=5,
+)
+# Optional: retriever = replace(retriever, similarity=CosineDistance())  # or EuclideanDistance()
+request = replace(
+    request,
+    resolver=retriever,
+    replacement_strategy=MultiDonorReplacement(rule=LinearBlendReplacement(blend_points=2)),
 )
 ```
 
-When `sdk.explain: true`, the result also includes `TopContributors`,
-`ContributionShares`, `ExplanationCoverage`, and `ExplanationMethod`. These
-columns are derived from the existing target and reconstruction, so explanation
-does not run the detector again. Inputs with any feature count up to the model's
-target dimension retain their original column names; right-padded model dimensions
-are excluded from MAE, L2, thresholding, and explanation shares because they do
-not represent caller-provided sensors. Low-level inference results expose
-`valid_feature_mask` and `score_feature_count`; `target` and `recon` retain the
-full model width for compatibility. When
-PCA or feature engineering changes the feature space, contributors use conservative
-`component_N` labels instead of claiming an incorrect mapping to original signals.
+Intervals are `[start, stop)`; calibration rows cannot be donors. Set
+`same_source=True` for the same trajectory to exclude the event's model window
+and future. Resolvers do not switch automatically. No alarm, insufficient history,
+or no eligible donor returns an unavailable result with its reason.
 
-Set `sdk.diagnose_reconstruction: true` to test why selected features may have
-been reconstructed incorrectly. The SDK applies level-shift, trend-change,
-transient-spike, and variance-burst repairs and re-scores them with the unchanged
-detector. This opt-in path performs four additional inference passes and requires
-directly mapped input features without a preprocessing model. It returns
-`LikelyReconstructionIssue`, `RepairImpact`, `DiagnosticConfidence`, and
-`ExplanationConsistency`. These metrics describe detector behavior and do not
-establish physical causality.
+`top_n` supplies up to that many eligible donors; `MultiDonorReplacement` is required
+to evaluate them independently. Each condition starts from the original input,
+without averaging donors, stitching features, or duplicating donors to fill a quota.
+`LinearBlendReplacement(blend_points=0)` inserts a donor directly. Custom replacements
+implement `generate(context) -> list[ReplacementCondition]`; custom similarities
+expose `name`, `direction` (`"minimize"` or `"maximize"`), and `compare(query, candidate)`.
 
-Set `sdk.report_path` in the YAML file to generate a PDF report with the
-original signals, detected anomalies, MAE, and ground truth when a conventional
-label column such as `GT` is present.
+#### Historical results
 
-Timestamp and ground-truth columns used for the report are excluded from model
-features but preserved in the returned DataFrame. Existing callers are unchanged
-because PDF generation is disabled unless `sdk.report_path` is supplied.
-When `sdk.explain: true`, the PDF adds contributor-share graphs and writes
-the complete row-level explanation data to a companion CSV. If per-anomaly
-charts would make the PDF exceed `sdk.report_max_pages` (10 by default), the PDF
-uses one consolidated, MAE-weighted top-contributors page instead; the companion
-CSV still contains every detected anomaly.
+| Metric | Meaning |
+| --- | --- |
+| Historical Impact | Percentage reduction in absolute target error at the fixed event. |
+| Target Reconstruction Improvement | Reduction in absolute target error in the original unit. |
+| Control-Adjusted Impact | Target improvement minus matched normal-control improvement. |
+| Explanation Stability | Effect and output-time rank consistency across distinct donors. |
+| Historical Contribution Share | Positive control-adjusted effects normalized across a defined candidate set. |
 
-An existing AD result or CSV can also be rendered after inference:
+Missing controls or comparisons remain unavailable with reasons. Donor stability
+does not establish seed, mask, or boundary stability. The PDF's historical response
+shares normalize reconstruction changes over the replaced interval; they are not
+the Historical Contribution Share metric or independent causal contributions.
+
+`attribution["conditions"]` records each input, reconstruction, donor, audit, and
+metric result. `condition_count` and `distinct_donor_count` record actual counts;
+top-level fields describe the first condition. Report metrics use condition IDs,
+and previously saved seed-based reports remain readable. Native masks and scaling
+are retained, so visible future observations may still condition reconstruction.
+
+### Shared PDF and data outputs
+
+Set `report_path` to generate a PDF with original signals, detected anomalies,
+MAE, and available ground truth. Reporting or historical attribution excludes
+configured/inferred timestamp and ground-truth columns from model features while
+preserving them in the returned DataFrame. Datetime indices and numeric time columns
+are supported; without time metadata, positions are zero-based row numbers. PDF and
+historical JSON use the same time axis, and historical curves retain supplied units.
+
+With `explain=True`, the PDF adds contributor-share graphs and exports every detected
+anomaly to a companion CSV. If detailed charts exceed `report_max_pages` (default 10),
+they become one MAE-weighted top-contributors page; the CSV remains complete.
+Historical attribution adds ranking and timeline pages, or one unavailable-result
+page, within the same page budget, plus `<report-stem>.historical.json`. A page budget
+too small for the required sections raises an error. Omitting the attribution request
+preserves the existing inference path; omitting `report_path` disables PDF generation.
+
+Render an existing result or CSV after inference with the same reporter:
 
 ```python
 from sdk.reporting import generate_anomaly_detection_report
 
-generate_anomaly_detection_report(
-    results,
-    "output/pdf/kumo-anomaly-report.pdf",
-)
+generate_anomaly_detection_report(results, "output/pdf/kumo-anomaly-report.pdf")
 ```
 
-The standalone reporter auto-detects common timestamp and ground-truth names
-(`timestamp`, `GT`, `ground_truth`, `is_anomaly`, and `label`).
+Pass `historical_attribution=attribution` to include saved historical results.
+The reporter infers common timestamp and label names such as `timestamp`, `GT`,
+`ground_truth`, `is_anomaly`, and `label`.
 
 ## Pretrained Weights
 
@@ -230,6 +323,17 @@ uv run pytest
 uv run ruff check .
 ```
 
+Run the focused explainability and reporting regressions with:
+
+```bash
+uv run pytest sdk/tests/test_historical_attribution.py \
+  sdk/tests/test_historical_sdk_integration.py sdk/tests/test_reporting.py \
+  sdk/tests/test_anomaly_analysis.py -q
+```
+
+PDF tests use deterministic fixtures and write reports with JSON/CSV companions
+in pytest temporary directories.
+
 ## Package Structure
 
 ```
@@ -237,6 +341,7 @@ Kumo-Anomaly/
 ├── sdk/                        # Main inference functions
 │   ├── anomaly_analysis.py     # Main API function
 │   ├── explainability.py       # Reconstruction-error contribution explanations
+│   ├── historical_attribution.py # Historical replacement, metrics, and PDF pages
 │   ├── inference_ad.py         # Core inference engine
 │   ├── inference_worker.py     # Multi-GPU worker
 │   ├── reporting.py            # PDF and companion CSV report generation
@@ -414,6 +519,9 @@ from sdk.anomaly_analysis import perform_anomaly_analysis_with_diffusion
 - **sdk_config** (ADDiffusionConfig|str|Path, optional): Explainability and
   reporting configuration object or path to an SDK YAML file. The default
   disables explanations, reconstruction diagnosis, and PDF generation.
+- **historical_attribution** (HistoricalAttributionRequest, optional): Normal
+  reference, event, and replacement settings for historical attribution. Results
+  are returned in `DataFrame.attrs["historical_attribution"]`.
 
 ### Advanced Usage
 

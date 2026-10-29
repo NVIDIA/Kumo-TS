@@ -8,11 +8,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from sdk.explainability import explain_reconstruction_anomalies
+from sdk.reporting import generate_anomaly_detection_report
 
 
 def test_ranks_exact_reconstruction_error_contributions() -> None:
@@ -52,6 +54,29 @@ def test_zero_error_has_zero_contribution_shares() -> None:
 
     assert json.loads(explanations.loc[0, "ContributionShares"]) == [0.0, 0.0]
     assert explanations.loc[0, "ExplanationCoverage"] == 0.0
+
+
+def test_complete_coverage_roundoff_does_not_prevent_pdf_report(tmp_path: Path) -> None:
+    """Three normalized errors that sum to 1 + epsilon must still be reportable."""
+    target = np.array([[1.0, 6.0, 23.0]])
+    assert np.sum([23 / 30, 6 / 30, 1 / 30]) > 1.0
+    features = ["pressure", "flow", "power"]
+    explanations = explain_reconstruction_anomalies(
+        target=target,
+        reconstruction=np.zeros_like(target),
+        feature_names=features,
+        top_k=3,
+    )
+
+    assert explanations.loc[0, "ExplanationCoverage"] == 1.0
+    result = pd.DataFrame(target, columns=features).join(explanations)
+    result["Anomaly"] = True
+    result["MAE"] = target.mean(axis=1)
+    destination = tmp_path / "roundoff_report.pdf"
+
+    generate_anomaly_detection_report(result, destination)
+
+    assert destination.read_bytes().startswith(b"%PDF")
 
 
 def test_maps_input_features_without_renormalizing_padded_model_error() -> None:
