@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import tempfile
-import types
 from contextlib import contextmanager
 from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
@@ -36,6 +35,7 @@ except ImportError:
 
 
 # Clean absolute imports - package is installed in editable mode
+from backbone import RevIN
 from backbone.utils.utils import control_randomness
 from channel_stability import (
     PerChannelEmbeddingStabilityReport,
@@ -118,6 +118,26 @@ class ForecastingConfig:
     integrated_gradients_internal_batch_size: int | None = None
     integrated_gradients_reduce: str = "l2"
     integrated_gradients_grad_through_norm: bool = True
+    # Missingness-aware forecasting: when True, NULLs are handled by the missingness-aware
+    # model (masks + missing_rate, see sdk/imputation.py) instead of being zero-filled.
+    handle_missingness: bool = False
+    # Missingness checkpoint: local .pt / folder, or hf://org/repo[@rev][/subfolder].
+    # None uses the released checkpoint hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0.
+    impute_ckpt: str | None = None
+    # Reference scaler for the missingness path: "history" (fit on observed input rows),
+    # "checkpoint" (training standardizer saved with the checkpoint), or
+    # "provided" (impute_scaler_stats).
+    impute_normalization: str = "history"
+    # Source dataset whose saved standardizer to use with impute_normalization="checkpoint".
+    impute_source_dataset: str | None = None
+    # "name": align channels to the checkpoint's training schema by column name;
+    # "positional": feed channels in input order.
+    impute_channel_alignment: str = "name"
+    # "history" normalization only: fit the scaler on the last N input rows (None = all rows).
+    impute_history_rows: int | None = None
+    # "provided" normalization: {"mean": {column: value}, "std": {column: value}}
+    # (see sdk.fit_impute_scaler_stats).
+    impute_scaler_stats: dict[str, dict[str, float]] | None = None
 
 
 _FORECASTING_CONFIG_FIELDS = frozenset(field.name for field in fields(ForecastingConfig))
@@ -297,6 +317,9 @@ def _load_cached_model(
 
 def clear_model_cache():
     _MODEL_CACHE.clear()
+    from .imputation import clear_impute_model_cache
+
+    clear_impute_model_cache()
     logger.info("Model cache cleared")
 
 
@@ -1372,43 +1395,10 @@ def _feature_axis_embedding_stability_page(
 
 @contextmanager
 def _normalization_statistics_gradient(model: torch.nn.Module, *, enabled: bool):
-    """Temporarily include supported normalization statistics in autograd."""
-    if not enabled:
-        yield 0
-        return
-
-    restores: list[tuple[object, object, bool]] = []
-    for module in model.modules():
-        if not all(hasattr(module, name) for name in ("_get_statistics", "_normalize", "eps")):
-            continue
-
-        original = module._get_statistics
-        had_instance_override = "_get_statistics" in vars(module)
-
-        def _get_statistics(self: Any, x: torch.Tensor, mask: torch.Tensor | None = None) -> None:
-            if mask is None:
-                mask = torch.ones((x.shape[0], x.shape[-1]), device=x.device)
-            expanded = mask.to(device=x.device).unsqueeze(1).expand(-1, x.shape[1], -1).bool()
-            masked_x = torch.where(expanded, x, torch.full_like(x, float("nan")))
-            mean = torch.nanmean(masked_x, dim=-1, keepdim=True)
-            variance = (masked_x - mean).square().nanmean(dim=-1, keepdim=True)
-            raw_stdev = variance.sqrt()
-            eps_sq = torch.as_tensor(float(self.eps) ** 2, dtype=variance.dtype, device=variance.device)
-            safe_stdev = variance.clamp_min(eps_sq).sqrt()
-            self.mean = mean
-            self.stdev = raw_stdev.detach() + safe_stdev - safe_stdev.detach() + self.eps
-
-        module._get_statistics = types.MethodType(_get_statistics, module)
-        restores.append((module, original, had_instance_override))
-
-    try:
-        yield len(restores)
-    finally:
-        for module, original, had_instance_override in reversed(restores):
-            if had_instance_override:
-                module._get_statistics = original
-            else:
-                delattr(module, "_get_statistics")
+    """Select request-local RevIN statistics autograd without mutating models."""
+    normalizer_count = sum(isinstance(module, RevIN) for module in model.modules())
+    with RevIN.statistics_gradient_context(enabled=enabled):
+        yield normalizer_count if enabled else 0
 
 
 def _compute_integrated_gradients_report(
@@ -2591,6 +2581,16 @@ def perform_forecasting(
     if df is None or df.empty:
         raise ValueError("Input DataFrame is required and cannot be empty")
 
+    # Missingness-aware path: route to the missingness model before any zero-filling.
+    if cfg.handle_missingness:
+        if context_df is not None:
+            raise ValueError("DARR (context_df) is not supported with handle_missingness=True yet")
+        if cfg.interpretability:
+            raise ValueError("interpretability is not supported with handle_missingness=True yet")
+        from .imputation import perform_missingness_aware_forecasting
+
+        return perform_missingness_aware_forecasting(df, cfg, device)
+
     # Validate minimum rows
     if len(df) < cfg.seq_len:
         raise ValueError(f"DataFrame has {len(df)} rows but seq_len requires at least {cfg.seq_len} rows")
@@ -2620,7 +2620,11 @@ def perform_forecasting(
 
     # Handle NULL values in target column - fill with zeros
     if working_df[cfg.target_column].isnull().any():
-        logger.warning("Found NULL values in '%s', filling with zeros", cfg.target_column)
+        logger.warning(
+            "Found NULL values in '%s', filling with zeros "
+            "(set handle_missingness=True to use the missingness-aware model)",
+            cfg.target_column,
+        )
         working_df[cfg.target_column] = working_df[cfg.target_column].fillna(0)
 
     # Automatically detect all numeric columns to use as features
@@ -2645,7 +2649,11 @@ def perform_forecasting(
     # Fill NaN values with zeros for all numeric columns
     for col in columns_to_process:
         if working_df[col].isnull().any():
-            logger.warning("Found NULL values in '%s', filling with zeros", col)
+            logger.warning(
+                "Found NULL values in '%s', filling with zeros "
+                "(set handle_missingness=True to use the missingness-aware model)",
+                col,
+            )
             working_df[col] = working_df[col].fillna(0)
 
     # Set random seed

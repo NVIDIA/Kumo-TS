@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -86,12 +87,14 @@ def test_perform_anomaly_analysis_with_scs_strategy(monkeypatch, numeric_df, inf
     assert kwargs["model_path"] == "model.pth"
     assert kwargs["config_path"] == "config.yaml"
     assert kwargs["nsample"] == 7
-    mock_thresholder.detect_anomalies.assert_called_once_with(
-        inference_results["residual"], inference_results["target"]
-    )
+    assert kwargs["feature_embedding_mode"] == "shared_mean_norm_matched_zero_pad"
+    mock_thresholder.detect_anomalies.assert_called_once()
+    detector_scores, detector_target = mock_thresholder.detect_anomalies.call_args.args
+    np.testing.assert_array_equal(detector_scores, inference_results["residual"])
+    np.testing.assert_array_equal(detector_target, inference_results["target"])
 
 
-def test_threshold_excludes_padded_dimensions(monkeypatch):
+def test_threshold_and_explanation_exclude_padded_dimensions(monkeypatch):
     input_df = pd.DataFrame(
         {
             "temperature": [1.0, 2.0, 3.0, 4.0, 5.0],
@@ -127,11 +130,91 @@ def test_threshold_excludes_padded_dimensions(monkeypatch):
         threshold_strategy="scs",
         model_path="model.pth",
         model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(
+            explain=True,
+            explanation_top_k=2,
+        ),
     )
 
     threshold_target = mock_thresholder.detect_anomalies.call_args.args[1]
     np.testing.assert_array_equal(threshold_target, target[:, :2])
-    np.testing.assert_array_equal(result["MAE"], padded_results["residual"])
+    assert json.loads(result.loc[0, "TopContributors"]) == ["temperature", "pressure"]
+    assert json.loads(result.loc[0, "ContributionShares"]) == pytest.approx([4 / 7, 3 / 7], abs=1e-6)
+    assert result.loc[0, "ExplanationCoverage"] == pytest.approx(1.0)
+
+
+def test_explanations_use_saved_training_order_for_reordered_serving_columns(monkeypatch):
+    input_df = pd.DataFrame(
+        {
+            "sensor_b": [2.0, 3.0, 4.0, 5.0, 6.0],
+            "sensor_a": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    target = np.zeros((5, 2))
+    reconstruction = np.zeros_like(target)
+    reconstruction[0] = [5.0, 1.0]
+    results = {
+        "residual": np.array([3.0, 0.0, 0.0, 0.0, 0.0]),
+        "target": target,
+        "recon": reconstruction,
+        "valid_feature_mask": np.array([True, True]),
+        "feature_names": ["sensor_a", "sensor_b"],
+    }
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=results))
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([True, False, False, False, False])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, explanation_top_k=1),
+    )
+
+    assert json.loads(result.loc[0, "TopContributors"]) == ["sensor_a"]
+
+
+def test_explanations_ignore_extra_serving_columns_with_saved_schema(monkeypatch):
+    input_df = pd.DataFrame(
+        {
+            "sensor_b": [2.0, 3.0, 4.0, 5.0, 6.0],
+            "numeric_label": [0, 1, 0, 1, 0],
+            "sensor_a": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    target = np.zeros((5, 4))
+    reconstruction = np.zeros_like(target)
+    reconstruction[0] = [5.0, 1.0, 100.0, 100.0]
+    results = {
+        "residual": np.array([3.0, 0.0, 0.0, 0.0, 0.0]),
+        "target": target,
+        "recon": reconstruction,
+        "valid_feature_mask": np.array([True, True, False, False]),
+        "feature_names": ["sensor_a", "sensor_b"],
+    }
+    monkeypatch.setattr(anomaly_analysis, "get_model_target_dim", lambda *_args: 4)
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=results))
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([True, False, False, False, False])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, explanation_top_k=2),
+    )
+
+    threshold_target = mock_thresholder.detect_anomalies.call_args.args[1]
+    np.testing.assert_array_equal(threshold_target, target[:, :2])
+    assert json.loads(result.loc[0, "TopContributors"]) == ["sensor_a", "sensor_b"]
 
 
 def test_perform_anomaly_analysis_rejects_non_numeric_columns(numeric_df):
@@ -232,6 +315,95 @@ def test_optional_pdf_report_excludes_metadata_from_inference(monkeypatch, infer
     assert destination.read_bytes().startswith(b"%PDF")
 
 
+def test_explain_toggle_preserves_numeric_feature_names(monkeypatch, tmp_path):
+    """The full analysis path should explain anomalies using the input signal names."""
+    feature_names = [
+        "x",
+        "y",
+        "z",
+        "010-000-024-033",
+        "010-000-030-096",
+        "020-000-032-221",
+        "020-000-033-111",
+    ]
+    input_df = pd.DataFrame(np.ones((5, len(feature_names))), columns=feature_names)
+    input_df["anomaly"] = [0, 1, 0, 0, 1]
+    target = np.zeros((5, 40))
+    reconstruction = np.zeros_like(target)
+    reconstruction[1, :7] = [0, 0, 0, 7, 6, 5, 4]
+    reconstruction[1, 27] = 100
+    reconstruction[4, :7] = [1, 2, 3, 4, 5, 6, 7]
+    inference_results = {
+        "residual": np.array([0.0, 122 / 40, 0.0, 0.0, 28 / 40]),
+        "target": target,
+        "recon": reconstruction,
+    }
+    mock_inference = Mock(return_value=inference_results)
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", mock_inference)
+
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([False, True, False, False, True])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+    monkeypatch.setattr(anomaly_analysis, "generate_anomaly_detection_report", Mock())
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(
+            explain=True,
+            explanation_top_k=3,
+            report_path=tmp_path / "report.pdf",
+        ),
+    )
+
+    inference_df = mock_inference.call_args.kwargs["data"]
+    assert list(inference_df.columns) == feature_names
+    assert result.loc[0, "TopContributors"] == "[]"
+    assert result.loc[1, "TopContributors"] == ('["010-000-024-033","010-000-030-096","020-000-032-221"]')
+    assert json.loads(result.loc[1, "ContributionShares"]) == pytest.approx([7 / 122, 6 / 122, 5 / 122], abs=1e-6)
+    assert result.loc[1, "ExplanationCoverage"] == pytest.approx(18 / 122)
+    assert result.loc[1, "ExplanationMethod"] == "reconstruction_error"
+    mock_inference.assert_called_once()
+
+
+@pytest.mark.parametrize("input_feature_count", [1, 7, 39, 40])
+def test_explain_toggle_maps_any_supported_input_width(monkeypatch, input_feature_count):
+    """Every directly mapped width up to target_dim should retain its input names."""
+    sample_count = 40
+    feature_names = [f"signal_{index}" for index in range(input_feature_count)]
+    input_df = pd.DataFrame(np.ones((sample_count, input_feature_count)), columns=feature_names)
+    target = np.zeros((sample_count, 40))
+    reconstruction = np.zeros_like(target)
+    reconstruction[0, :input_feature_count] = np.arange(1, input_feature_count + 1)
+    inference_results = {
+        "residual": np.abs(reconstruction).mean(axis=1),
+        "target": target,
+        "recon": reconstruction,
+    }
+    monkeypatch.setattr(anomaly_analysis, "get_model_target_dim", lambda model_path, config_path: 40)
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=inference_results))
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([True] + [False] * (sample_count - 1))
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        input_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True),
+    )
+
+    contributors = json.loads(result.loc[0, "TopContributors"])
+    assert contributors == feature_names[-min(3, input_feature_count) :][::-1]
+
+
 def test_report_metadata_arguments_are_ignored_without_report_path(monkeypatch, inference_results):
     """Report-only arguments must not alter the default inference feature set."""
     input_df = pd.DataFrame(
@@ -273,8 +445,11 @@ def test_load_sdk_config_accepts_nested_sdk_section(tmp_path):
 model:
   target_dim: 40
 sdk:
+  explain: true
+  explanation_top_k: 4
+  diagnose_reconstruction: true
   report_title: Custom Report
-  report_max_pages: 8
+  report_consolidated_top_k: 8
 """,
         encoding="utf-8",
     )
@@ -282,8 +457,12 @@ sdk:
     config = anomaly_analysis.load_sdk_config(config_path)
 
     assert isinstance(config, anomaly_analysis.ADDiffusionConfig)
+    assert config.explain is True
+    assert config.explanation_top_k == 4
+    assert config.diagnose_reconstruction is True
     assert config.report_title == "Custom Report"
-    assert config.report_max_pages == 8
+    assert config.report_consolidated_top_k == 8
+    assert config.report_max_pages == 10
 
 
 def test_load_sdk_config_accepts_flat_mapping(tmp_path):
@@ -366,3 +545,54 @@ sdk:
     assert list(inference_df.columns) == ["feature_1", "feature_2"]
     assert {"timestamp", "GT", "Anomaly", "MAE"}.issubset(result.columns)
     assert destination.read_bytes().startswith(b"%PDF")
+
+
+@pytest.mark.parametrize("feature_embedding_mode", ["shared_mean_norm_matched_zero_pad", "positional"])
+def test_reconstruction_diagnosis_is_opt_in_and_hides_raw_scores(monkeypatch, numeric_df, feature_embedding_mode):
+    """Diagnosis should return only simplified metrics after four repair passes."""
+    original = {
+        "residual": np.array([0.1, 0.5, 0.2, 0.3, 0.1]),
+        "target": np.zeros((5, 3)),
+        "recon": np.array([[0.0, 0.0, 0.0], [3.0, 1.0, 0.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+    }
+
+    def repaired(score_at_anomaly):
+        return {"residual": np.array([0.1, score_at_anomaly, 0.2, 0.3, 0.1])}
+
+    mock_inference = Mock(side_effect=[original, repaired(0.1), repaired(0.3), repaired(0.4), repaired(0.45)])
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", mock_inference)
+    mock_thresholder = Mock()
+    mock_thresholder.detect_anomalies.return_value = np.array([False, True, False, False, False])
+    mock_strategy = Mock()
+    mock_strategy.scs_thresholder = mock_thresholder
+    monkeypatch.setattr(anomaly_analysis, "SCSThresholdStrategy", Mock(return_value=mock_strategy))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        numeric_df,
+        threshold_strategy="scs",
+        model_path="model.pth",
+        model_config_path="config.yaml",
+        sdk_config=anomaly_analysis.ADDiffusionConfig(explain=True, diagnose_reconstruction=True),
+        feature_embedding_mode=feature_embedding_mode,
+    )
+
+    assert mock_inference.call_count == 5
+    assert all(
+        call.kwargs["feature_embedding_mode"] == feature_embedding_mode for call in mock_inference.call_args_list
+    )
+    assert result.loc[1, "LikelyReconstructionIssue"] == "Level shift"
+    assert result.loc[1, "RepairImpact"] == pytest.approx(0.8)
+    assert result.loc[1, "DiagnosticConfidence"] == "High"
+    assert result.loc[1, "ExplanationConsistency"] == "Not evaluated"
+    assert not any(column.startswith(("effect_", "score_after_")) for column in result.columns)
+
+
+def test_reconstruction_diagnosis_requires_feature_explanations(numeric_df):
+    with pytest.raises(ValueError, match="requires explain=True"):
+        anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+            numeric_df,
+            threshold_strategy="scs",
+            model_path="model.pth",
+            model_config_path="config.yaml",
+            sdk_config=anomaly_analysis.ADDiffusionConfig(diagnose_reconstruction=True),
+        )

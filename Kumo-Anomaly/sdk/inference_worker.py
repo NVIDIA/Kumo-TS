@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 import time
-from multiprocessing import shared_memory
+from multiprocessing import resource_tracker, shared_memory
 
 # Log start time before any heavy imports
 start_time = time.time()
@@ -56,9 +56,15 @@ def main():
     seed = args["seed"]
     deterministic = args["deterministic"]
     preprocess_model_dir = args["preprocess_model_dir"]
-    use_dpm_solver = args.get("use_dpm_solver", False)  # NEW: Extract DPM parameters
     dpm_steps = args.get("dpm_steps", 20)  # NEW: Extract DPM parameters
+    feature_embedding_mode = args.get(
+        "feature_embedding_mode",
+        "shared_mean_norm_matched_zero_pad",
+    )
     valid_feature_mask = args.get("valid_feature_mask")
+    num_active_features = args.get("num_active_features")
+    if num_active_features is None and valid_feature_mask is not None:
+        num_active_features = sum(bool(value) for value in valid_feature_mask)
 
     try:
         # NOW import torch - after CUDA_VISIBLE_DEVICES is already set
@@ -82,8 +88,7 @@ def main():
         worker_logger.debug("Worker STARTED at %.2f", start_time)
 
         # NEW: Log DPM usage
-        if use_dpm_solver:
-            worker_logger.debug("Using DPM-Solver with %d steps", dpm_steps)
+        worker_logger.debug("Using DPM-Solver with %d steps", dpm_steps)
 
         if deterministic:
             os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -94,13 +99,13 @@ def main():
         # With CUDA_VISIBLE_DEVICES set, cuda:0 refers to our assigned GPU
         device = torch.device("cuda:0")
 
-        # Set seed for reproducibility
-        device_seed = seed + gpu_id
-        random.seed(device_seed)
-        np.random.seed(device_seed)
-        torch.manual_seed(device_seed)
+        # Keep process-level randomness independent of physical GPU assignment.
+        # Diffusion noise itself is seeded per global window below.
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(device_seed)
+            torch.cuda.manual_seed(seed)
 
         # Load model
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
@@ -109,6 +114,8 @@ def main():
             device=device,
             target_dim=target_dim,
             ratio=0.7,
+            feature_embedding_mode=feature_embedding_mode,
+            num_active_features=num_active_features,
         )
         if isinstance(checkpoint, dict) and "model" in checkpoint:
             model.load_state_dict(checkpoint["model"])
@@ -121,12 +128,17 @@ def main():
             # Create dataloader for this chunk
             if isinstance(data_chunk, dict) and data_chunk.get("window_shm"):
                 shm = shared_memory.SharedMemory(name=data_chunk["shm_name"])
+                # This worker only borrows the parent-owned segment. Without
+                # unregistering, every worker's resource tracker tries to unlink it
+                # at process exit and reports a false leak/double-unlink warning.
+                resource_tracker.unregister(shm._name, "shared_memory")
                 # Convert JSON-serialized dtype (str) and shape (list) back to numpy types
                 shm_dtype = np.dtype(data_chunk["dtype"])
                 shm_shape = tuple(data_chunk["shape"])
                 windows = np.ndarray(shm_shape, dtype=shm_dtype, buffer=shm.buf)
                 loader1, loader2 = get_dataloader_from_windows(
                     windows,
+                    batch_size=data_chunk.get("batch_size", 32),
                     split=data_chunk["split"],
                     window_indices=data_chunk["window_indices"],
                 )
@@ -144,8 +156,10 @@ def main():
                 loader1,
                 loader2,
                 nsample=nsample,
-                use_dpm_solver=use_dpm_solver,  # NEW: Pass DPM parameters
                 dpm_steps=dpm_steps,  # NEW: Pass DPM parameters
+                window_seeds=[seed + window_index for window_index in data_chunk["window_indices"]]
+                if isinstance(data_chunk, dict) and data_chunk.get("window_shm")
+                else None,
                 valid_feature_mask=valid_feature_mask,
             )
         finally:

@@ -42,7 +42,7 @@ results = inference_ad_tesseract2(data, model_path, config_path, nsample=30)
 
 # For fast inference with DPM-Solver (50-100x speedup):
 results = inference_ad_tesseract2(data, model_path, config_path, nsample=30,
-                                  use_dpm_solver=True, dpm_steps=20)
+                                  dpm_steps=20)
 
 # For multi-GPU inference (spawns workers per call):
 from sdk.inference_ad import inference_ad_tesseract2_mp
@@ -50,7 +50,7 @@ results = inference_ad_tesseract2_mp(data, "model.pth", nsample=30)
 
 # For multi-GPU inference with DPM-Solver (massive speedup):
 results = inference_ad_tesseract2_mp(data, "model.pth", nsample=30,
-                                     use_dpm_solver=True, dpm_steps=20)
+                                     dpm_steps=20)
 """
 
 import json
@@ -88,6 +88,7 @@ except ImportError:
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.main_model import TSDiffuser_Generic
 from models.utils import evaluate
+from sdk.feature_adapter import transform_dataframe_from_metadata
 from utils.tsb_ad_preprocessor import preprocess_for_inference
 
 # DEVICE configuration - simplified for standalone use
@@ -114,6 +115,8 @@ PROFILE_RESIDUALS = os.environ.get("TESSERACT_PROFILE_RESIDUALS", "0") == "1"
 
 # Default seed for reproducibility
 DEFAULT_SEED = 42
+DEFAULT_FEATURE_EMBEDDING_MODE = "shared_mean_norm_matched_zero_pad"
+INFERENCE_BATCH_SIZE = 32
 
 
 def set_seed(seed: int = DEFAULT_SEED) -> None:
@@ -530,6 +533,7 @@ def get_dataloader(
     domain=None,
     model_dir=None,
     requires_preprocessing=True,
+    window_length=100,
 ):
     """
     Create data loaders for inference.
@@ -539,6 +543,7 @@ def get_dataloader(
         target_dim (int): Target dimensionality
         batch_size (int): Batch size for data loaders
         window_split (int): Split factor for windows
+        window_length (int): Number of observations in each window
         split (int): Number of splits for masking
 
     Returns:
@@ -552,6 +557,7 @@ def get_dataloader(
     """
     # Create test datasets
     test_args = {
+        "window_length": window_length,
         "window_split": window_split,
         "split": split,
         "scale_factor": scale_factor,
@@ -639,6 +645,79 @@ def preprocess_dataframe(
     return torch.tensor(data, dtype=torch.float32) * scale_factor
 
 
+def _get_checkpoint_preprocessing(checkpoint: object) -> dict | None:
+    if not isinstance(checkpoint, dict):
+        return None
+    preprocessing = checkpoint.get("preprocessing")
+    return preprocessing if isinstance(preprocessing, dict) and preprocessing else None
+
+
+def _get_checkpoint_feature_names(checkpoint: object) -> list[str] | None:
+    """Return saved names only when model dimensions map directly to input features."""
+    preprocessing = _get_checkpoint_preprocessing(checkpoint)
+    if preprocessing is None or bool(preprocessing.get("uses_pca", False)):
+        return None
+    columns = preprocessing.get("columns")
+    return list(columns) if columns else None
+
+
+def _get_finetune_window_settings(
+    preprocessing: dict,
+    checkpoint: dict,
+    config: dict,
+) -> tuple[int, int]:
+    """Resolve shared inference window settings, including legacy CLI overrides."""
+    checkpoint_args = checkpoint.get("args", {})
+    if not isinstance(checkpoint_args, dict):
+        checkpoint_args = {}
+    dataset_config = config.get("dataset", {})
+    if not isinstance(dataset_config, dict):
+        dataset_config = {}
+
+    window_length = (
+        preprocessing.get("window_length")
+        or checkpoint_args.get("window_length")
+        or dataset_config.get("window_length", 100)
+    )
+    split = preprocessing.get("split") or checkpoint_args.get("split") or dataset_config.get("split", 4)
+    window_length = int(window_length)
+    split = int(split)
+    if window_length <= 0 or split <= 0:
+        raise ValueError("Checkpoint preprocessing window_length and split must be positive.")
+    if window_length % split != 0:
+        raise ValueError("Checkpoint preprocessing window_length must be divisible by split.")
+    return window_length, split
+
+
+def _apply_checkpoint_preprocessing(
+    data: pd.DataFrame,
+    checkpoint: object,
+    config: dict,
+    target_dim: int,
+    preprocess_model_dir: str | None,
+) -> tuple[torch.Tensor, int, int, float, np.ndarray] | None:
+    """Replay fine-tuning preprocessing unless the caller explicitly supplied another preprocessor."""
+    preprocessing = _get_checkpoint_preprocessing(checkpoint)
+    if preprocessing is None or preprocess_model_dir is not None:
+        return None
+
+    metadata_target_dim = int(preprocessing.get("target_dim", target_dim))
+    if metadata_target_dim != target_dim:
+        raise ValueError(
+            f"Checkpoint preprocessing target_dim={metadata_target_dim} does not match model target_dim={target_dim}."
+        )
+
+    preprocessed = transform_dataframe_from_metadata(data, preprocessing)
+    window_length, split = _get_finetune_window_settings(preprocessing, checkpoint, config)
+    scale_factor = float(preprocessing.get("scale_factor", config.get("dataset", {}).get("scale_factor", 1.0)))
+    valid_feature_mask = _build_score_feature_mask(
+        int(preprocessing["input_dim"]),
+        target_dim,
+        transformed=bool(preprocessing["uses_pca"]),
+    )
+    return preprocessed, window_length, split, scale_factor, valid_feature_mask
+
+
 def _build_window_indexes(total_rows: int, window_length: int, window_split: int) -> list[int]:
     step = max(1, window_length // max(1, window_split))
     if total_rows < window_length:
@@ -647,15 +726,18 @@ def _build_window_indexes(total_rows: int, window_length: int, window_split: int
 
 
 def _split_indexes(indexes: list[int], num_parts: int) -> list[list[int]]:
+    """Split indexes without changing canonical inference batch boundaries."""
     if num_parts <= 1:
         return [indexes]
-    chunk_size = len(indexes) // num_parts
-    remainder = len(indexes) % num_parts
+
+    batches = [indexes[i : i + INFERENCE_BATCH_SIZE] for i in range(0, len(indexes), INFERENCE_BATCH_SIZE)]
+    chunk_size = len(batches) // num_parts
+    remainder = len(batches) % num_parts
     chunks: list[list[int]] = []
     start = 0
     for i in range(num_parts):
         end = start + chunk_size + (1 if i < remainder else 0)
-        chunks.append(indexes[start:end])
+        chunks.append([index for batch in batches[start:end] for index in batch])
         start = end
     return chunks
 
@@ -680,9 +762,14 @@ def _build_window_tensor(
 
 def _create_shared_memory(array: np.ndarray) -> dict:
     shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
-    shm_array = np.ndarray(array.shape, dtype=array.dtype, buffer=shm.buf)
-    shm_array[:] = array
-    return {"name": shm.name, "shape": array.shape, "dtype": array.dtype}
+    try:
+        shm_array = np.ndarray(array.shape, dtype=array.dtype, buffer=shm.buf)
+        shm_array[:] = array
+        return {"name": shm.name, "shape": array.shape, "dtype": array.dtype}
+    finally:
+        # The segment remains alive until unlink(), but this creator handle is no
+        # longer needed. Keeping it open triggers resource_tracker leak warnings.
+        shm.close()
 
 
 def _cleanup_shared_memory(shm_info: dict) -> None:
@@ -738,7 +825,7 @@ def prepare_for_metrics(recon, target):
     return recon_flat, target_flat
 
 
-def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_dpm_solver=False, dpm_steps=20):
+def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, dpm_steps=20):
     """
     Evaluate the model and return raw samples before median.
 
@@ -750,7 +837,6 @@ def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_d
         test_loader1: First test dataloader
         test_loader2: Second test dataloader
         nsample: Number of samples to generate
-        use_dpm_solver: If True, use DPM-Solver for fast inference
         dpm_steps: Number of DPM-Solver steps (10-50)
 
     Returns:
@@ -762,7 +848,6 @@ def evaluate_ad_raw_samples(model, test_loader1, test_loader2, nsample=30, use_d
         test_loader2,
         nsample=nsample,
         save_results=False,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
     )
     return {
@@ -854,19 +939,18 @@ def evaluate_ad_tesseract2(
     test_loader1,
     test_loader2,
     nsample=30,
-    use_dpm_solver=False,
     dpm_steps=20,
+    window_seeds=None,
     valid_feature_mask=None,
 ):
     """
-    Evaluate the model on the test data with optional DPM-Solver support.
+    Evaluate the model on the test data using DPM-Solver++.
 
     Args:
         model: The diffusion model
         test_loader1: First test dataloader
         test_loader2: Second test dataloader
         nsample: Number of samples to generate
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
         valid_feature_mask: Boolean model-dimension mask. When omitted, the
             mask recorded by ``InferenceData`` is used, or all dimensions if
@@ -885,8 +969,8 @@ def evaluate_ad_tesseract2(
         test_loader2,
         nsample=nsample,
         save_results=False,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
+        window_seeds=window_seeds,
     )
     timings["diffusion_sampling"] = time.perf_counter() - t0
 
@@ -1137,8 +1221,8 @@ def inference_ad_tesseract2(
     config_path: str = "",
     nsample=30,
     preprocess_model_dir=None,
-    use_dpm_solver=True,
     dpm_steps=20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ):
     """
     Perform anomaly detection inference using Kumo-Anomaly model.
@@ -1154,9 +1238,14 @@ def inference_ad_tesseract2(
         config_path: Path to config file. Optional if the config is embedded in the
             checkpoint; otherwise ``curriculum_medium.yaml`` is downloaded from HF.
         nsample: Number of samples for diffusion model inference
-        preprocess_model_dir: Directory containing preprocessing model (optional)
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
+        preprocess_model_dir: Directory containing an external preprocessing model (optional). When omitted,
+            fitted preprocessing embedded in a fine-tuned checkpoint is replayed automatically.
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` to use the checkpoint's original
+            position-specific feature embeddings.
 
     Returns:
         dict: Dictionary containing:
@@ -1167,6 +1256,8 @@ def inference_ad_tesseract2(
             - target_dim: Target dimension used by the model
             - valid_feature_mask: Model dimensions included in residual scores
             - score_feature_count: Number of dimensions included in scores
+            - feature_names: Saved training feature names when dimensions map directly
+            - feature_embedding_mode: Feature-embedding mode used for inference
 
     Note:
         For reproducible results, call set_seed() before this function.
@@ -1183,8 +1274,36 @@ def inference_ad_tesseract2(
         config = load_config(resolved_config)
 
     target_dim = config["model"].get("target_dim", 40)
+    scale_factor = config.get("dataset", {}).get("scale_factor", 1.0)
+    window_length, split = _get_finetune_window_settings(
+        _get_checkpoint_preprocessing(checkpoint) or {}, checkpoint, config
+    )
+    checkpoint_data = _apply_checkpoint_preprocessing(
+        data,
+        checkpoint,
+        config,
+        target_dim,
+        preprocess_model_dir,
+    )
+    if checkpoint_data is not None:
+        preprocessed, window_length, split, _, valid_feature_mask = checkpoint_data
+        feature_names = _get_checkpoint_feature_names(checkpoint)
+    else:
+        feature_names = None
+        valid_feature_mask = _score_feature_mask_for_dataframe(
+            data,
+            target_dim,
+            model_dir=preprocess_model_dir,
+        )
 
-    model = TSDiffuser_Generic(config, device=device, target_dim=target_dim, ratio=0.7)
+    model = TSDiffuser_Generic(
+        config,
+        device=device,
+        target_dim=target_dim,
+        ratio=0.7,
+        feature_embedding_mode=feature_embedding_mode,
+        num_active_features=int(valid_feature_mask.sum()),
+    )
     if isinstance(checkpoint, dict):
         if "model" in checkpoint:
             # Load model state
@@ -1197,11 +1316,21 @@ def inference_ad_tesseract2(
     model = model.to(device)
     model.eval()
 
-    scale_factor = config.get("dataset", {}).get("scale_factor", 1.0)
-
-    test_loader1, test_loader2 = get_dataloader(
-        data, target_dim, scale_factor=scale_factor, model_dir=preprocess_model_dir
-    )
+    if checkpoint_data is not None:
+        test_loader1, test_loader2 = get_dataloader_from_array(
+            preprocessed,
+            window_length=window_length,
+            split=split,
+        )
+    else:
+        test_loader1, test_loader2 = get_dataloader(
+            data,
+            target_dim,
+            scale_factor=scale_factor,
+            model_dir=preprocess_model_dir,
+            window_length=window_length,
+            split=split,
+        )
 
     # Run inference with DPM support
     results = evaluate_ad_tesseract2(
@@ -1209,12 +1338,15 @@ def inference_ad_tesseract2(
         test_loader1,
         test_loader2,
         nsample=nsample,
-        use_dpm_solver=use_dpm_solver,
         dpm_steps=dpm_steps,
+        valid_feature_mask=valid_feature_mask,
     )
 
     # Add target_dim to results
     results["target_dim"] = target_dim
+    results["feature_embedding_mode"] = feature_embedding_mode
+    if feature_names is not None:
+        results["feature_names"] = feature_names
 
     return results
 
@@ -1230,8 +1362,8 @@ def inference_ad_tesseract2_mp(
     gpu_ids: list[int] | None = None,
     seed: int = DEFAULT_SEED,
     deterministic: bool = True,
-    use_dpm_solver: bool = True,
     dpm_steps: int = 20,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
 ) -> dict:
     """
     Multi-GPU inference using subprocess workers and shared-memory windows.
@@ -1246,36 +1378,41 @@ def inference_ad_tesseract2_mp(
         config_path: Path to config file. Optional if the config is embedded in the
             checkpoint; otherwise ``curriculum_medium.yaml`` is downloaded from HF.
         nsample: Number of diffusion samples per window.
-        preprocess_model_dir: Directory containing preprocessing model (optional).
+        preprocess_model_dir: Directory containing an external preprocessing model (optional). When omitted,
+            fitted preprocessing embedded in a fine-tuned checkpoint is replayed automatically.
         num_processes: Number of GPU worker processes (defaults to len(gpu_ids)).
         gpu_ids: List of GPU ids to use (defaults to all visible GPUs).
         seed: Random seed for reproducibility.
         deterministic: If True, enable deterministic behavior in workers.
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
 
     Returns:
         dict with residual, residual_l2, target, recon, target_dim,
         valid_feature_mask, and score_feature_count keys.
 
     Note:
-        Combining multiprocessing with DPM-Solver provides massive speedup!
-        Example: 4 GPUs * 50x DPM speedup = 200x total speedup vs single-GPU standard diffusion.
+        Multi-GPU scaling is workload-dependent. Workers process canonical batches
+        independently; additional visible GPUs do not imply linear speedup.
     """
     # Ensure weights are available locally before spinning up workers (which
     # otherwise each race to download the same files).
     resolved_model, resolved_config = _resolve_model_paths(model_path, config_path)
 
     total_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    if total_gpus <= 1:
+    if total_gpus == 0:
+        set_seed(seed)
         return inference_ad_tesseract2(
             data,
             resolved_model,
             config_path=resolved_config,
             nsample=nsample,
             preprocess_model_dir=preprocess_model_dir,
-            use_dpm_solver=use_dpm_solver,
             dpm_steps=dpm_steps,
+            feature_embedding_mode=feature_embedding_mode,
         )
 
     if gpu_ids is None:
@@ -1288,17 +1425,12 @@ def inference_ad_tesseract2_mp(
     num_processes = max(1, min(num_processes, len(gpu_ids)))
 
     # Log multiprocessing + DPM strategy
-    method_str = f"DPM-Solver ({dpm_steps} steps)" if use_dpm_solver else "Standard Diffusion"
+    method_str = f"DPM-Solver++ ({dpm_steps} steps)"
     logger.info("%s", "\n" + "=" * 60)
-    logger.info("MULTI-GPU INFERENCE with %s", method_str)
+    logger.info("GPU WORKER INFERENCE with %s", method_str)
     logger.info("%s", "=" * 60)
     logger.info("Processes: %s", num_processes)
     logger.info("GPU IDs: %s", gpu_ids)
-    if use_dpm_solver:
-        per_process_speedup = 1000 / dpm_steps
-        total_speedup = per_process_speedup * num_processes
-        logger.info("Per-GPU speedup: ~%.0fx", per_process_speedup)
-        logger.info("Total estimated speedup: ~%.0fx vs single-GPU standard", total_speedup)
     logger.info("%s\n", "=" * 60)
 
     model_path = Path(resolved_model)
@@ -1311,21 +1443,33 @@ def inference_ad_tesseract2_mp(
 
     target_dim = config["model"].get("target_dim", 40)
     scale_factor = config.get("dataset", {}).get("scale_factor", 1.0)
-    window_length = config.get("dataset", {}).get("window_length", 100)
     window_split = 1
-    split = config.get("dataset", {}).get("split", 4)
-
-    preprocessed = preprocess_dataframe(
-        data,
-        target_dim,
-        scale_factor=scale_factor,
-        model_dir=preprocess_model_dir,
+    window_length, split = _get_finetune_window_settings(
+        _get_checkpoint_preprocessing(checkpoint) or {}, checkpoint, config
     )
-    valid_feature_mask = _score_feature_mask_for_dataframe(
+    checkpoint_data = _apply_checkpoint_preprocessing(
         data,
+        checkpoint,
+        config,
         target_dim,
-        model_dir=preprocess_model_dir,
+        preprocess_model_dir,
     )
+    if checkpoint_data is not None:
+        preprocessed, window_length, split, scale_factor, valid_feature_mask = checkpoint_data
+        feature_names = _get_checkpoint_feature_names(checkpoint)
+    else:
+        feature_names = None
+        preprocessed = preprocess_dataframe(
+            data,
+            target_dim,
+            scale_factor=scale_factor,
+            model_dir=preprocess_model_dir,
+        )
+        valid_feature_mask = _score_feature_mask_for_dataframe(
+            data,
+            target_dim,
+            model_dir=preprocess_model_dir,
+        )
     num_rows = len(preprocessed)
     begin_indexes = _build_window_indexes(num_rows, window_length, window_split)
     window_tensor = _build_window_tensor(preprocessed.cpu().numpy(), begin_indexes, window_length)
@@ -1358,6 +1502,7 @@ def inference_ad_tesseract2_mp(
                         "dtype": str(shm_info["dtype"]),
                         "window_indices": chunk,
                         "split": split,
+                        "batch_size": INFERENCE_BATCH_SIZE,
                     },
                     "model_path": str(model_path),
                     "config": config,
@@ -1367,8 +1512,9 @@ def inference_ad_tesseract2_mp(
                     "seed": seed,
                     "deterministic": deterministic,
                     "preprocess_model_dir": preprocess_model_dir,
-                    "use_dpm_solver": use_dpm_solver,
                     "dpm_steps": dpm_steps,
+                    "feature_embedding_mode": feature_embedding_mode,
+                    "num_active_features": int(valid_feature_mask.sum()),
                     "valid_feature_mask": valid_feature_mask.tolist(),
                 }
                 with open(args_file, "w") as f:
@@ -1401,7 +1547,11 @@ def inference_ad_tesseract2_mp(
                     k: np.array(v) if isinstance(v, list) else v for k, v in data["results"].items()
                 }
 
-        return _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results = _merge_chunked_results(results_per_chunk, target_dim, valid_feature_mask)
+        results["feature_embedding_mode"] = feature_embedding_mode
+        if feature_names is not None:
+            results["feature_names"] = feature_names
+        return results
     finally:
         _cleanup_shared_memory(shm_info)
 

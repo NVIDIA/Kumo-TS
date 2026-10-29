@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -14,15 +15,25 @@ import pandas as pd
 import yaml
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sdk.explainability import explain_reconstruction_anomalies
 from sdk.inference_ad import (
+    DEFAULT_FEATURE_EMBEDDING_MODE,
+    DEFAULT_SEED,
     _resolve_model_paths,
     get_model_target_dim,
     inference_ad_tesseract2_mp,
+    set_seed,
+)
+from sdk.reconstruction_failure import (
+    FAILURE_MODES,
+    build_repair_variants,
+    summarize_repair_diagnostics,
 )
 from sdk.reporting import (
     generate_anomaly_detection_report,
     infer_ground_truth_column,
     infer_timestamp_column,
+    resolve_time_axis,
 )
 from sdk.thresholds import MACSThresholdStrategy, SCSThresholdStrategy
 
@@ -32,18 +43,23 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ADDiffusionConfig:
-    """Reporting configuration for :func:`perform_anomaly_analysis_with_diffusion`.
+    """Explainability and reporting configuration for :func:`perform_anomaly_analysis_with_diffusion`.
 
-    Scoped to report-related parameters — inference-behavior knobs like
-    ``threshold_strategy``, ``nsample``, and the model/config paths stay as
-    direct function arguments.
+    Scoped to the explain toggle and explainability/report-related parameters —
+    inference-behavior knobs like ``threshold_strategy``, ``nsample``, and the
+    model/config paths stay as direct function arguments.
     """
 
+    explain: bool = False
+    explanation_top_k: int = 3
+    diagnose_reconstruction: bool = False
     report_path: str | Path | None = None
     timestamp_column: str | None = None
     ground_truth_column: str | None = None
     report_title: str = "Kumo-Anomaly Report"
+    report_explanation_csv_path: str | Path | None = None
     report_max_pages: int = 10
+    report_consolidated_top_k: int = 5
 
 
 _SDK_CONFIG_FIELDS = frozenset(field.name for field in fields(ADDiffusionConfig))
@@ -94,6 +110,8 @@ def perform_anomaly_analysis_with_diffusion(
     nsample: int = 15,
     preprocess_model_dir: str | Path | None = None,
     sdk_config: ADDiffusionConfig | str | Path | None = None,
+    feature_embedding_mode: str = DEFAULT_FEATURE_EMBEDDING_MODE,
+    historical_attribution=None,
 ) -> pd.DataFrame:
     """
     Perform anomaly analysis using Kumo-Anomaly Model.
@@ -111,21 +129,39 @@ def perform_anomaly_analysis_with_diffusion(
         model_config_path: Path to the model architecture config file (optional if config is in checkpoint)
         nsample: Number of samples for diffusion model inference
         preprocess_model_dir: Directory containing preprocessing model (optional)
-        sdk_config: Reporting `ADDiffusionConfig`, YAML path, or `None` for defaults.
-            See `ADDiffusionConfig` for the field reference.
+        sdk_config: Explainability/reporting `ADDiffusionConfig`, YAML path, or `None` for defaults.
+            Set ``diagnose_reconstruction=True`` to test four reconstruction-failure
+            hypotheses with structure-preserving repairs and paired re-scoring.
+            This requires ``explain=True`` and performs four additional model
+            inference passes. Raw per-hypothesis scores are not returned.
+            See `ADDiffusionConfig` for the full field reference.
+        feature_embedding_mode: ``"shared_mean_norm_matched_zero_pad"`` (default)
+            shares the norm-matched mean checkpoint embedding across active
+            features and zeros feature side information at SDK-identified padded
+            positions. Pass ``"positional"`` for legacy checkpoint behavior.
+        historical_attribution: Optional HistoricalAttributionRequest. Computes one
+            historical replacement using the existing inference settings and appends
+            reader-facing pages to the original PDF. Settings are documented on the
+            request class; omitted by default to preserve existing SDK behavior.
 
     Returns:
-        DataFrame with original columns, Anomaly (int64: 0 = normal, 1 = anomaly),
-        and MAE (floating-point anomaly score).
+        DataFrame with original data and anomaly detection results
     """
     cfg = _resolve_sdk_config(sdk_config)
+    if cfg.diagnose_reconstruction and not cfg.explain:
+        raise ValueError("diagnose_reconstruction=True requires explain=True.")
+    if cfg.diagnose_reconstruction and preprocess_model_dir is not None:
+        raise ValueError(
+            "Reconstruction diagnosis currently requires directly mapped input features; "
+            "preprocess_model_dir is not supported."
+        )
 
     # Prepare data for diffusion model
     # The diffusion model expects all numeric columns
     resolved_timestamp_column = None
     resolved_ground_truth_column = None
     metadata_columns = []
-    if cfg.report_path is not None:
+    if cfg.report_path is not None or historical_attribution is not None:
         resolved_timestamp_column = cfg.timestamp_column or infer_timestamp_column(df)
         resolved_ground_truth_column = cfg.ground_truth_column or infer_ground_truth_column(df)
         metadata_columns = [
@@ -141,8 +177,6 @@ def perform_anomaly_analysis_with_diffusion(
 
     # Validate all columns are numeric by attempting to convert the entire DataFrame
     original_columns = input_df.columns.tolist()
-
-    # Try to convert all columns to numeric at once
     numeric_df = input_df.apply(pd.to_numeric, errors="coerce")
 
     # Check which columns introduced NaNs (indicating non-numeric values)
@@ -154,7 +188,6 @@ def perform_anomaly_analysis_with_diffusion(
         if converted_na_count > original_na_count:
             non_numeric_cols.append(col)
         else:
-            # Update the original dataframe with successfully converted column
             input_df[col] = numeric_df[col]
 
     if non_numeric_cols:
@@ -163,7 +196,19 @@ def perform_anomaly_analysis_with_diffusion(
             f"All input values must be numeric for anomaly detection."
         )
 
-    # Resolve / auto-download weights once up front so downstream calls share them.
+    historical_event_labels = None
+    if historical_attribution is not None and historical_attribution.event_source == "dataset_label":
+        if resolved_ground_truth_column is None:
+            raise ValueError("Aligned binary dataset event labels require a ground-truth column")
+        historical_event_labels = df[resolved_ground_truth_column]
+        if (
+            not isinstance(historical_event_labels, pd.Series)
+            or not historical_event_labels.index.equals(input_df.index)
+            or historical_event_labels.isna().any()
+            or not historical_event_labels.isin([0, 1]).all()
+        ):
+            raise ValueError("Aligned binary dataset event labels are required")
+
     resolved_model, resolved_config = _resolve_model_paths(
         str(model_path) if model_path else None,
         str(model_config_path) if model_config_path else "",
@@ -181,12 +226,15 @@ def perform_anomaly_analysis_with_diffusion(
         )
 
     # Run inference with diffusion model (auto-uses multi-GPU when available)
+    if cfg.diagnose_reconstruction:
+        set_seed(DEFAULT_SEED)
     results = inference_ad_tesseract2_mp(
         data=input_df,
         model_path=resolved_model,
         config_path=resolved_config,
         nsample=nsample,
         preprocess_model_dir=str(preprocess_model_dir) if preprocess_model_dir else None,
+        feature_embedding_mode=feature_embedding_mode,
     )
 
     # Extract residual scores (MAE) from results
@@ -195,15 +243,16 @@ def perform_anomaly_analysis_with_diffusion(
     # Get target data for advanced thresholding methods
     target_data = results["target"]
 
-    # Model evaluation works on fixed-size windows and may append padded rows to
-    # the final window. Align outputs before threshold calibration so synthetic
-    # padding cannot change the thresholds used for real input rows.
+    # Align padded inference outputs before adaptive-threshold calibration.
     original_length = len(df)
-    if len(residual_scores) != original_length:
-        logger.info(f"Aligning lengths: residual_scores={len(residual_scores)}, original_data={original_length}")
-        residual_scores = residual_scores[:original_length]
-    if len(target_data) != original_length:
-        target_data = target_data[:original_length]
+    if len(residual_scores) != original_length or len(target_data) != original_length:
+        logger.info(
+            "Aligning detector inputs: "
+            f"residual_scores={len(residual_scores)}, target_data={len(target_data)}, "
+            f"original_data={original_length}"
+        )
+    residual_scores = residual_scores[:original_length]
+    target_data = target_data[:original_length]
 
     valid_feature_mask = results.get("valid_feature_mask")
     if valid_feature_mask is None:
@@ -217,20 +266,180 @@ def perform_anomaly_analysis_with_diffusion(
     # Apply thresholding strategy
     if threshold_strategy == "scs":
         # Use actual target data from the model results
-        anomalies = SCSThresholdStrategy().scs_thresholder.detect_anomalies(residual_scores, threshold_target_data)
+        threshold_detector = SCSThresholdStrategy().scs_thresholder
+        anomalies = threshold_detector.detect_anomalies(residual_scores, threshold_target_data)
     elif threshold_strategy == "macs":
         # Use actual target data from the model results
-        anomalies = MACSThresholdStrategy().macs_thresholder.detect_anomalies(residual_scores, threshold_target_data)
+        threshold_detector = MACSThresholdStrategy().macs_thresholder
+        anomalies = threshold_detector.detect_anomalies(residual_scores, threshold_target_data)
     else:
         raise ValueError(f"Unknown threshold strategy: {threshold_strategy}")
 
-    # Create result dataframe. A thresholder may return a longer mask than the
-    # score array, so keep assignment aligned with the input rows as well.
+    # A custom threshold strategy may return a mask aligned to padded model
+    # outputs. Preserve the OSS SDK's one-row-per-input contract.
+    anomalies = np.asarray(anomalies, dtype=bool)[:original_length]
+
+    # Create result dataframe
     result_df = df.copy()
-    anomalies = anomalies[:original_length]
 
     result_df["Anomaly"] = anomalies
     result_df["MAE"] = residual_scores  # Using residual (MAE) as anomaly score
+
+    if cfg.explain:
+        reconstruction = results.get("recon")
+        if reconstruction is None:
+            raise ValueError("Inference results must include 'recon' when explain=True.")
+
+        explanation_length = min(original_length, len(target_data), len(reconstruction), len(anomalies))
+        target_for_explanation = target_data[:explanation_length]
+        reconstruction_for_explanation = reconstruction[:explanation_length]
+
+        target_feature_count = target_for_explanation.shape[1] if target_for_explanation.ndim > 1 else 1
+        input_feature_count = len(input_df.columns)
+        saved_feature_names = results.get("feature_names")
+        if saved_feature_names is not None:
+            feature_names = [str(feature_name) for feature_name in saved_feature_names]
+            missing_features = [feature_name for feature_name in feature_names if feature_name not in input_df.columns]
+            if missing_features:
+                raise ValueError(f"Inference feature_names are missing from the input data: {missing_features}.")
+            if valid_feature_mask is not None:
+                target_for_explanation = target_for_explanation[:, valid_feature_mask]
+                reconstruction_for_explanation = reconstruction_for_explanation[:, valid_feature_mask]
+            feature_indices = None
+            directly_mapped = True
+        else:
+            directly_mapped = preprocess_model_dir is None and input_feature_count <= target_feature_count
+        if saved_feature_names is None and directly_mapped and valid_feature_mask is not None:
+            target_for_explanation = target_for_explanation[:, valid_feature_mask]
+            reconstruction_for_explanation = reconstruction_for_explanation[:, valid_feature_mask]
+            feature_names = list(input_df.columns)
+            feature_indices = None
+        elif saved_feature_names is None:
+            feature_names = list(input_df.columns) if directly_mapped else None
+            feature_indices = list(range(input_feature_count)) if directly_mapped else None
+        explanations = explain_reconstruction_anomalies(
+            target_for_explanation,
+            reconstruction_for_explanation,
+            anomaly_mask=anomalies[:explanation_length],
+            feature_names=feature_names,
+            feature_indices=feature_indices,
+            top_k=cfg.explanation_top_k,
+        )
+
+        # Model outputs can be shorter than the source frame for some windowing
+        # configurations. Reindexing preserves the SDK's one-row-per-input contract.
+        explanations = explanations.reindex(range(original_length)).fillna(
+            {
+                "TopContributors": "[]",
+                "ContributionShares": "[]",
+                "ExplanationCoverage": 0.0,
+                "ExplanationMethod": "",
+            }
+        )
+        for column in explanations.columns:
+            result_df[column] = explanations[column].to_numpy()
+
+        if cfg.diagnose_reconstruction:
+            if not directly_mapped:
+                raise ValueError(
+                    "Reconstruction diagnosis requires input features that map directly to model dimensions."
+                )
+            feature_lookup = {str(column): index for index, column in enumerate(input_df.columns)}
+            candidate_feature_indices: list[list[int]] = [[] for _ in range(original_length)]
+            for row_index in np.flatnonzero(anomalies[:original_length]):
+                contributor_names = json.loads(result_df.iloc[row_index]["TopContributors"])
+                candidate_feature_indices[row_index] = [feature_lookup[name] for name in contributor_names]
+
+            reference_window = min(21, len(input_df) if len(input_df) % 2 else max(1, len(input_df) - 1))
+            reference = input_df.rolling(window=reference_window, center=True, min_periods=1).median()
+            repair_variants = build_repair_variants(
+                input_df.to_numpy(dtype=float),
+                reference.to_numpy(dtype=float),
+                anomaly_mask=anomalies[:original_length],
+                candidate_feature_indices=candidate_feature_indices,
+                lookback=min(20, len(input_df)),
+            )
+            repaired_scores: dict[str, np.ndarray] = {}
+            for hypothesis in FAILURE_MODES:
+                set_seed(DEFAULT_SEED)
+                repaired_result = inference_ad_tesseract2_mp(
+                    data=pd.DataFrame(repair_variants[hypothesis], columns=input_df.columns),
+                    model_path=resolved_model,
+                    config_path=resolved_config,
+                    nsample=nsample,
+                    preprocess_model_dir=None,
+                    seed=DEFAULT_SEED,
+                    feature_embedding_mode=feature_embedding_mode,
+                )
+                repaired_scores[hypothesis] = np.asarray(repaired_result["residual"], dtype=float)[:original_length]
+
+            diagnoses = summarize_repair_diagnostics(
+                residual_scores[:original_length],
+                repaired_scores,
+                anomaly_mask=anomalies[:original_length],
+            )
+            for column in diagnoses.columns:
+                result_df[column] = diagnoses[column].to_numpy()
+
+    historical_result = None
+    if historical_attribution is not None:
+        if preprocess_model_dir is not None or (
+            len(input_df.columns) > target_dim and results.get("feature_names") is None
+        ):
+            raise ValueError("Historical attribution currently requires direct feature mapping")
+        from sdk.historical_attribution import run_sdk_attribution
+
+        event_positions = np.flatnonzero(anomalies)
+        p = historical_attribution.event_position
+        p = int(event_positions[0]) if p is None and len(event_positions) else p
+        trace = {
+            "strategy": threshold_strategy,
+            "sdk_detected": p is not None and 0 <= p < len(anomalies) and bool(anomalies[p]),
+        }
+        if threshold_strategy == "scs" and p is not None:
+            for segment, (lo, hi) in enumerate(threshold_detector.segments):
+                if lo <= p <= hi:
+                    lower, upper = threshold_detector.segment_bounds[segment]
+                    trace.update(
+                        segment=[int(lo), int(hi)],
+                        lower=float(lower[p - lo]),
+                        upper=float(upper[p - lo]),
+                        percentile_filter=float(threshold_detector.percentile_filter),
+                        percentile_threshold=float(
+                            np.percentile(residual_scores, threshold_detector.percentile_filter)
+                        ),
+                        rule="outside segment bounds AND score above global percentile",
+                    )
+                    break
+
+        def replay(data):
+            return inference_ad_tesseract2_mp(
+                data=data,
+                model_path=resolved_model,
+                config_path=resolved_config,
+                nsample=nsample,
+                preprocess_model_dir=None,
+                feature_embedding_mode=feature_embedding_mode,
+            )
+
+        historical_result = run_sdk_attribution(
+            input_df,
+            results,
+            anomalies,
+            residual_scores,
+            historical_attribution,
+            replay,
+            resolved_model,
+            resolved_config,
+            time_axis=resolve_time_axis(df, resolved_timestamp_column),
+            threshold_trace=trace,
+            event_labels=historical_event_labels,
+        )
+        result_df.attrs["historical_attribution"] = historical_result
+        if cfg.report_path is not None:
+            sidecar = Path(cfg.report_path).with_suffix(".historical.json")
+            sidecar.parent.mkdir(parents=True, exist_ok=True)
+            sidecar.write_text(json.dumps(historical_result, ensure_ascii=False, indent=2, allow_nan=False))
 
     if cfg.report_path is not None:
         generate_anomaly_detection_report(
@@ -240,7 +449,10 @@ def perform_anomaly_analysis_with_diffusion(
             timestamp_column=resolved_timestamp_column,
             ground_truth_column=resolved_ground_truth_column,
             title=cfg.report_title,
+            explanation_csv_path=cfg.report_explanation_csv_path,
             max_report_pages=cfg.report_max_pages,
+            consolidated_top_k=cfg.report_consolidated_top_k,
+            **({"historical_attribution": historical_result} if historical_result is not None else {}),
         )
 
     return result_df
