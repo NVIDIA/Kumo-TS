@@ -2,10 +2,16 @@
 
 All notable changes to Kumo-TS (formerly NV-Tesseract) are documented in this file.
 
-## Unreleased
+## v1.0.1 - Unreleased
+
+Changes since v1.0.0. Release date will be recorded when published.
 
 ### Added
 
+- Anomaly explanation metrics, per-feature contributions, companion CSV exports, and consolidated PDF reports. ([#68](https://github.com/NVIDIA/Kumo-TS/pull/68), [#72](https://github.com/NVIDIA/Kumo-TS/pull/72))
+- YAML-configured anomaly explanation settings and optional reconstruction diagnosis. ([#75](https://github.com/NVIDIA/Kumo-TS/pull/75), [#77](https://github.com/NVIDIA/Kumo-TS/pull/77))
+- Historical attribution for anomaly explanations, including event validation and report timestamp preservation. ([#93](https://github.com/NVIDIA/Kumo-TS/pull/93))
+- Configurable shared feature embeddings for anomaly detection, with a positional compatibility mode. ([#80](https://github.com/NVIDIA/Kumo-TS/pull/80))
 - Missingness-aware forecasting in the forecasting SDK: `ForecastingConfig(handle_missingness=True)` routes inputs with
   NaN gaps to a missingness-aware model (`impute/`, Backbone-LF+ CRS) that reads per-channel/per-timestep observation
   masks instead of zero-filling. Options: `impute_ckpt`, `impute_normalization` (`history` / `provided` / `checkpoint`),
@@ -18,8 +24,27 @@ All notable changes to Kumo-TS (formerly NV-Tesseract) are documented in this fi
 
 ### Changed
 
+- Renamed the repository to Kumo-TS, forecasting to Kumo-Forecast, and AD Diffusion to Kumo-Anomaly; updated package names, directories, artifact prefixes, model references, and documentation. ([#83](https://github.com/NVIDIA/Kumo-TS/pull/83), [#84](https://github.com/NVIDIA/Kumo-TS/pull/84), [#85](https://github.com/NVIDIA/Kumo-TS/pull/85), [#86](https://github.com/NVIDIA/Kumo-TS/pull/86))
+- Added published Kumo blogs and research papers to the repository README. ([#91](https://github.com/NVIDIA/Kumo-TS/pull/91))
 - The NULL zero-fill warning now points to `handle_missingness=True`; `clear_model_cache()` also clears cached
   missingness models.
+
+### Fixed
+
+- Replayed saved fine-tuning feature order and preprocessing during anomaly inference rather than fitting transforms to the scoring batch. ([#32](https://github.com/NVIDIA/Kumo-TS/pull/32))
+- Corrected `preprocess_simple` target-dimension forwarding. ([#44](https://github.com/NVIDIA/Kumo-TS/pull/44))
+- Made forecasting RevIN statistics request-local to prevent interference between concurrent calls. ([#70](https://github.com/NVIDIA/Kumo-TS/pull/70))
+- Removed GPU-count-dependent diffusion random-number behavior. ([#78](https://github.com/NVIDIA/Kumo-TS/pull/78))
+- Corrected DPM-Solver++ timesteps, clipped schedules, and cumulative unconditional noise; anomaly inference now uses DPM-Solver++ exclusively. ([#89](https://github.com/NVIDIA/Kumo-TS/pull/89))
+- Restored fine-tuning run-config support for validation data, labels, dropped columns, pretrained models, and model configuration. ([#90](https://github.com/NVIDIA/Kumo-TS/pull/90))
+- Aligned anomaly inference window, split, and scale settings with saved fine-tuned checkpoints, including preprocessing overrides and multi-device paths. ([#92](https://github.com/NVIDIA/Kumo-TS/pull/92))
+
+### Notes
+
+- Repository release version: `v1.0.1`; package versions: `kumo-forecast` 1.0.1 and `kumo-anomaly` 1.0.1.
+- Missingness-aware forecasting is introduced by [#87](https://github.com/NVIDIA/Kumo-TS/pull/87). Its `kumo-forecast-1.2.0` model asset version is independent of SDK release 1.0.1.
+- Anomaly output remains int64 (`0` = normal, `1` = anomaly). Explanation and historical attribution are opt-in.
+- Missingness-aware forecasting is inference-only in this release and cannot be combined with forecasting interpretability.
 
 ## v1.0.0 - 2026-09-21
 
