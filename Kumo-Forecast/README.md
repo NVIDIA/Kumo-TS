@@ -120,6 +120,12 @@ config = ForecastingConfig(
 results = perform_forecasting(df=df, config=config)
 ```
 
+## System Requirements and Memory
+
+- **Hardware**: a GPU is recommended but not required (A100/H100 for improved performance). On CPU, use an x86 processor with at least 8 cores (a modern processor is recommended). CPU memory: 8 GB minimum and 16 GB recommended for baseline forecasting. Disk space: 50 GB minimum.
+- **Memory depends on the mode.** DARR and forecasting interpretability (integrated gradients) can need substantially more CPU memory than baseline forecasting. `sdk/quick_example.py` runs standard, DARR and interpretability forecasts in one process, and peaked at about 37 GiB of RAM on CPU in 1.0.1 QA testing.
+- **On memory-constrained hosts**, use a GPU, run the modes one at a time (comment out the DARR and interpretability sections of `sdk/quick_example.py`), or set `integrated_gradients_internal_batch_size` to a small value (for example `4`) to reduce interpretability peak memory. With the default (`None`), all `integrated_gradients_steps` (64) interpolation points are processed in one batch.
+
 ## UV Commands Reference
 
 ### Package Management
