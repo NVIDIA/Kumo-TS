@@ -126,6 +126,8 @@ def perform_anomaly_analysis_with_diffusion(
         threshold_strategy: Strategy to use for threshold calculation ('scs' or 'macs')
         model_path: Path to the diffusion model checkpoint. If ``None`` or missing
             locally, the default checkpoint is downloaded from Hugging Face.
+            Security: checkpoints are loaded with pickle semantics and can execute
+            arbitrary code; only pass files from a trusted source.
         model_config_path: Path to the model architecture config file (optional if config is in checkpoint)
         nsample: Number of samples for diffusion model inference
         preprocess_model_dir: Directory containing preprocessing model (optional)

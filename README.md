@@ -207,6 +207,7 @@ Kumo-TS/
 
 - Vulnerability disclosure: `SECURITY.md`
 - Do not file public issues for security reports.
+- Model files: checkpoints and standardizers are loaded with pickle semantics. Only load files from trusted sources. See [Loading Model Files and Artifacts](SECURITY.md#loading-model-files-and-artifacts).
 
 ## Support
 

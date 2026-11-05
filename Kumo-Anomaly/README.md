@@ -59,7 +59,7 @@ analysis_df = df[["sensor_1", "sensor_2", "sensor_3"]].copy()
 results = perform_anomaly_analysis_with_diffusion(
     df=analysis_df,
     threshold_strategy="scs",  # or "macs"
-    # model_path="path/to/your/model.pth",         # optional; defaults to final_model.pth
+    # model_path="path/to/your/model.pth",         # optional; trusted files only (pickle). Defaults to final_model.pth
     # model_config_path="path/to/config.yaml",     # optional; defaults to curriculum_medium.yaml
     nsample=15,
     sdk_config="path/to/sdk_config.yaml",
@@ -271,6 +271,11 @@ The reporter infers common timestamp and label names such as `timestamp`, `GT`,
 
 ## Pretrained Weights
 
+> **Security warning:** Checkpoints are loaded with pickle semantics (`torch.load(..., weights_only=False)`).
+> Loading an untrusted `.pth` file can execute arbitrary code. Only use `model_path` / `--model-path`
+> with checkpoints you created or obtained from a trusted source. The default
+> `nvidia/Kumo-Anomaly` assets are safe to use. See [`SECURITY.md`](../SECURITY.md#loading-model-files-and-artifacts).
+
 The pretrained Kumo-Anomaly model is hosted on Hugging Face:
 
 - **Repository**: [`nvidia/Kumo-Anomaly`](https://huggingface.co/nvidia/Kumo-Anomaly)
@@ -416,7 +421,7 @@ uv run python examples/quick_example.py --dataset-path /path/to/your/data.csv
 # Pre-download the weights only (e.g. to warm the cache):
 uv run python examples/quick_example.py --download-weights
 
-# Use a checkpoint you already have locally:
+# Use a checkpoint you already have locally (trusted files only; see the security warning above):
 uv run python examples/quick_example.py --model-path /path/to/final_model.pth
 
 # Combine custom dataset with custom model:
@@ -461,7 +466,7 @@ uv run python examples/finetune_example.py \
 
 The output directory contains:
 
-- `best_finetuned_model.pth` - best validation checkpoint, compatible with the SDK inference loader
+- `best_finetuned_model.pth` - best validation checkpoint, compatible with the SDK inference loader (pickle format: load only files you trust, and share them only with parties who understand this)
 - `final_finetuned_model.pth` - final epoch checkpoint
 - `metrics.json` - training and validation losses
 - `finetune_config.yaml` - model configuration used for fine-tuning
