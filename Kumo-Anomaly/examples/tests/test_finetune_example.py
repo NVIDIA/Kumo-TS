@@ -198,3 +198,44 @@ def test_finetune_saves_effective_window_settings_and_training_preprocessing(tmp
             assert checkpoint["preprocessing"][key] == value
         restored = finetune_example.FeatureAdapter.from_metadata(checkpoint["preprocessing"])
         assert torch.all(restored.transform(val) > 7)
+
+
+def _patch_main_for_world_size(monkeypatch, *, num_gpus: int, events: list) -> None:
+    args = SimpleNamespace(num_gpus=num_gpus)
+    monkeypatch.setattr(finetune_example, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        finetune_example,
+        "resolve_model_assets",
+        lambda a: events.append("resolve") or ("model.pth", "config.yaml"),
+    )
+    monkeypatch.setattr(finetune_example, "find_free_port", lambda: 12345)
+    monkeypatch.setattr(
+        finetune_example.mp,
+        "spawn",
+        lambda fn, args, nprocs, join: events.append(("spawn", nprocs)),
+    )
+    monkeypatch.setattr(
+        finetune_example, "main_worker", lambda rank, world_size, a: events.append(("worker", rank, world_size))
+    )
+    monkeypatch.setattr(finetune_example.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(finetune_example.torch.cuda, "device_count", lambda: 4)
+    monkeypatch.setenv("MASTER_ADDR", "unset")
+    monkeypatch.setenv("MASTER_PORT", "0")
+
+
+def test_main_downloads_assets_once_before_spawning_multi_gpu_workers(monkeypatch):
+    events: list = []
+    _patch_main_for_world_size(monkeypatch, num_gpus=4, events=events)
+
+    finetune_example.main()
+
+    assert events == ["resolve", ("spawn", 4)]
+
+
+def test_main_single_gpu_does_not_prefetch_assets_in_parent(monkeypatch):
+    events: list = []
+    _patch_main_for_world_size(monkeypatch, num_gpus=1, events=events)
+
+    finetune_example.main()
+
+    assert events == [("worker", 0, 1)]
