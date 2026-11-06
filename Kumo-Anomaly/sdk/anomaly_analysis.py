@@ -284,7 +284,9 @@ def perform_anomaly_analysis_with_diffusion(
     # Create result dataframe
     result_df = df.copy()
 
-    result_df["Anomaly"] = anomalies
+    # REQ-1 contract: Anomaly is int64 (0 = normal, 1 = anomaly). ``anomalies`` stays a
+    # boolean mask for the explanation and attribution code below; cast only the output.
+    result_df["Anomaly"] = anomalies.astype(np.int64)
     result_df["MAE"] = residual_scores  # Using residual (MAE) as anomaly score
 
     if cfg.explain:
