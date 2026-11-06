@@ -81,6 +81,8 @@ class ForecastingConfig:
 
     timestamp_column: str = "timestamp"
     target_column: str = "target"
+    # SECURITY: standardizer_pkl, ckpt and impute_ckpt are loaded with pickle semantics
+    # (joblib/torch.load). Only point them at files from a trusted source.
     standardizer_pkl: str = "standardizer.pkl"
     ckpt: str = CHECKPOINT_CROSS_CHANNEL
     seq_len: int = 512
@@ -348,6 +350,11 @@ def download_model_weights(
     Raises:
         ImportError: If huggingface_hub is not installed
         Exception: If download fails
+
+    Security:
+        The standardizer and checkpoint are loaded with pickle semantics and can
+        execute arbitrary code. Only use files you created or obtained from a
+        trusted source.
 
     Note:
         Weights are published on the Hugging Face repository and download

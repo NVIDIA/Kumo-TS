@@ -100,11 +100,11 @@ uv run python examples/finetune_example.py \
 The output directory contains:
 
 - `best_model.pt` - fine-tuned checkpoint
-- `standardizer.pkl` - training normalization statistics
+- `standardizer.pkl` - training normalization statistics (pickle format: load only files you trust)
 - `finetune_metadata.json` - model, data, and training metadata
 - `metrics.json` - training and validation metrics for all epochs
 
-Use the fine-tuned artifacts with the SDK:
+Use the fine-tuned artifacts with the SDK (only load artifacts you produced or trust; see the security warning under [Model Weights](#model-weights)):
 
 ```python
 config = ForecastingConfig(
@@ -204,6 +204,12 @@ The project uses `pyproject.toml` for configuration:
 - **Package management**: UV
 
 ## Model Weights
+
+> **Security warning:** `standardizer.pkl` is loaded with `joblib.load` and model checkpoints with
+> `torch.load`, both of which use pickle semantics. Loading an untrusted file can execute arbitrary code.
+> Only pass `standardizer_pkl`, `ckpt` or `impute_ckpt` files you created or obtained from a trusted source.
+> The default `nvidia/Kumo-Forecast` assets are safe to use. See
+> [`SECURITY.md`](../SECURITY.md#loading-model-files-and-artifacts).
 
 The forecasting model requires pre-trained weights from the Hugging Face repository:
 - Repository: [`nvidia/Kumo-Forecast`](https://huggingface.co/nvidia/Kumo-Forecast) (auto-downloaded on first use; no authentication required)
@@ -326,7 +332,7 @@ results = perform_forecasting(df=df, config=interp_config)
 ```python
 from sdk.forecasting import ForecastingConfig, perform_forecasting
 
-# If you want to specify custom paths for model weights
+# If you want to specify custom paths for model weights (trusted files only: these are loaded with pickle semantics)
 config = ForecastingConfig(
     forecast_horizon=72,
     standardizer_pkl="custom/path/standardizer.pkl",  # Default: "standardizer.pkl"
