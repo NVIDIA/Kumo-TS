@@ -298,7 +298,7 @@ on `ForecastingConfig` and are documented in the commented YAML template.
 | `integrated_gradients_baseline` | IG reference input; `"noise"` is the default and avoids the constant-baseline degeneracy of instance normalization |
 | `integrated_gradients_steps` | Number of midpoint integration steps (default `64`) |
 | `integrated_gradients_n_baselines` | Number of noise baselines averaged as Expected Gradients (default `1`) |
-| `integrated_gradients_internal_batch_size` | Maximum interpolation points embedded per batch; `None` processes all steps together |
+| `integrated_gradients_internal_batch_size` | Maximum interpolation points embedded per batch; `None` processes all steps together, which can need tens of GB of RAM on CPU at the default 64 steps. Set a small value (for example `4`) on memory-constrained hosts to reduce peak memory. |
 | `integrated_gradients_reduce` | Embedding scalar objective: `"l2"`, `"sum"`, or `"mean"` |
 | `integrated_gradients_grad_through_norm` | Include RevIN statistics in the attribution gradient while leaving forward outputs unchanged |
 | `return_all_channels` | When `True`, the result contains one `{column}_forecast` column per processed channel (target column first, then the remaining numeric features) instead of only `{target_column}_forecast`, including in interpretability mode |
