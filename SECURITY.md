@@ -22,3 +22,22 @@ While NVIDIA currently does not have a bug bounty program, we do offer acknowled
 ## NVIDIA Product Security
 
 For all security-related concerns, please visit NVIDIA's Product Security portal at https://www.nvidia.com/en-us/security
+
+## Loading Model Files and Artifacts
+
+Kumo-TS loads model checkpoints and preprocessing artifacts with Python pickle
+semantics. This applies to:
+
+- Kumo-Anomaly: checkpoints passed as `model_path` (`.pth`), loaded with `torch.load(..., weights_only=False)`.
+- Kumo-Forecast: standardizers passed as `standardizer_pkl` (`.pkl`, loaded with `joblib.load`) and checkpoints passed as `ckpt` or `impute_ckpt` (`.pt`).
+
+**Loading a crafted file can execute arbitrary code in your environment, before any validation runs.**
+Only load checkpoints and standardizers that you created yourself or obtained from a source you trust,
+such as the official [`nvidia/Kumo-Anomaly`](https://huggingface.co/nvidia/Kumo-Anomaly) and
+[`nvidia/Kumo-Forecast`](https://huggingface.co/nvidia/Kumo-Forecast) Hugging Face repositories, which
+the SDK downloads by default. Never load fine-tuned models or standardizers shared by unknown parties
+or downloaded from untrusted locations. If you must inspect an untrusted file, do so in an isolated,
+disposable environment.
+
+Loading an untrusted file you supplied through these parameters is a documented usage limitation, not a
+vulnerability in the SDK. To report a vulnerability, follow the process above.

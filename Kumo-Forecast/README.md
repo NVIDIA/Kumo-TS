@@ -100,11 +100,11 @@ uv run python examples/finetune_example.py \
 The output directory contains:
 
 - `best_model.pt` - fine-tuned checkpoint
-- `standardizer.pkl` - training normalization statistics
+- `standardizer.pkl` - training normalization statistics (pickle format: load only files you trust)
 - `finetune_metadata.json` - model, data, and training metadata
 - `metrics.json` - training and validation metrics for all epochs
 
-Use the fine-tuned artifacts with the SDK:
+Use the fine-tuned artifacts with the SDK (only load artifacts you produced or trust; see the security warning under [Model Weights](#model-weights)):
 
 ```python
 config = ForecastingConfig(
@@ -119,6 +119,12 @@ config = ForecastingConfig(
 )
 results = perform_forecasting(df=df, config=config)
 ```
+
+## System Requirements and Memory
+
+- **Hardware**: a GPU is recommended but not required (A100/H100 for improved performance). On CPU, use an x86 processor with at least 8 cores (a modern processor is recommended). CPU memory: 8 GB minimum and 16 GB recommended for baseline forecasting. Disk space: 50 GB minimum.
+- **Memory depends on the mode.** DARR and forecasting interpretability (integrated gradients) can need substantially more CPU memory than baseline forecasting. `sdk/quick_example.py` runs standard, DARR and interpretability forecasts in one process, and peaked at about 37 GiB of RAM on CPU in 1.0.1 QA testing.
+- **On memory-constrained hosts**, use a GPU, run the modes one at a time (comment out the DARR and interpretability sections of `sdk/quick_example.py`), or set `integrated_gradients_internal_batch_size` to a small value (for example `4`) to reduce interpretability peak memory. With the default (`None`), all `integrated_gradients_steps` (64) interpolation points are processed in one batch.
 
 ## UV Commands Reference
 
@@ -152,9 +158,12 @@ Kumo-Forecast/
 ├── pyproject.toml                    # Project configuration and dependencies
 ├── README.md                         # This file
 ├── examples/
-│   └── finetune_example.py           # CSV fine-tuning example
+│   ├── finetune_example.py           # CSV fine-tuning example
+│   └── missingness_quickstart.py     # Forecasting with gaps (handle_missingness=True)
+├── impute/                           # Missingness-aware model (Backbone-LF+ CRS) and checkpoint loader
 ├── sdk/
 │   ├── forecasting.py                # Main SDK entry point (with auto-download)
+│   ├── imputation.py                 # Missingness-aware path (masks, normalization, channel alignment)
 │   ├── quick_example.py              # End-to-end demo script
 │   └── tests/                        # Test files and datasets
 ├── dataset_longhorizon.py            # Dataset utilities and Standardizer
@@ -202,12 +211,20 @@ The project uses `pyproject.toml` for configuration:
 
 ## Model Weights
 
+> **Security warning:** `standardizer.pkl` is loaded with `joblib.load` and model checkpoints with
+> `torch.load`, both of which use pickle semantics. Loading an untrusted file can execute arbitrary code.
+> Only pass `standardizer_pkl`, `ckpt` or `impute_ckpt` files you created or obtained from a trusted source.
+> The default `nvidia/Kumo-Forecast` assets are safe to use. See
+> [`SECURITY.md`](../SECURITY.md#loading-model-files-and-artifacts).
+
 The forecasting model requires pre-trained weights from the Hugging Face repository:
 - Repository: [`nvidia/Kumo-Forecast`](https://huggingface.co/nvidia/Kumo-Forecast) (auto-downloaded on first use; no authentication required)
 - Required files (auto-downloaded to current directory):
   - `standardizer.pkl` - Data normalization parameters
   - `moment_head_512_6hr.pt` - Model checkpoint for standard 6-hour forecasting (standard forecasting only)
   - `run8_best_model_cr.pt` - Model checkpoint for cross-channel forecasting (cross-channel forecasting only)
+- Missingness-aware model (`handle_missingness=True`): `kumo-forecast-1.2.0/best_model.pt` + `config_base.json`
+  from the same repository, downloaded once into the Hugging Face cache (`impute_ckpt` overrides the location)
 
 ## Interpretability
 
@@ -278,6 +295,21 @@ results = perform_forecasting(
 )
 ```
 
+### Forecasting With Missing Values
+```python
+from sdk.forecasting import ForecastingConfig, perform_forecasting
+
+# df may contain NaN gaps in the target and feature columns
+config = ForecastingConfig(
+    target_column="OT",
+    forecast_horizon=48,
+    handle_missingness=True,  # uses hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0
+)
+results = perform_forecasting(df=df, config=config)
+```
+See the "Missingness-aware forecasting" section of `sdk/README.md` for normalization and channel-alignment options,
+and `examples/missingness_quickstart.py` for a runnable script.
+
 ### Interpretability (Lag x Horizon Explanations)
 ```python
 from sdk.forecasting import ForecastingConfig, perform_forecasting
@@ -306,7 +338,7 @@ results = perform_forecasting(df=df, config=interp_config)
 ```python
 from sdk.forecasting import ForecastingConfig, perform_forecasting
 
-# If you want to specify custom paths for model weights
+# If you want to specify custom paths for model weights (trusted files only: these are loaded with pickle semantics)
 config = ForecastingConfig(
     forecast_horizon=72,
     standardizer_pkl="custom/path/standardizer.pkl",  # Default: "standardizer.pkl"

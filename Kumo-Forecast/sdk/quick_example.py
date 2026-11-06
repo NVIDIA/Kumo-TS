@@ -12,6 +12,11 @@ This example demonstrates:
 4. Interpretability mode (lag and feature attributions, JSON + PDF report)
 
 Model weights download automatically from the public Hugging Face repo on first run.
+
+Memory note: this script runs all three modes in one process. On CPU the full run
+peaked at about 37 GiB of RAM in 1.0.1 QA testing, mostly in the interpretability
+step. On hosts with 8-16 GB of RAM, use a GPU, run the modes one at a time, or set
+``integrated_gradients_internal_batch_size`` to a small value (for example 4).
 """
 
 import logging

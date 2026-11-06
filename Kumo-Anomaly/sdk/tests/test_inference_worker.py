@@ -27,7 +27,7 @@ class FakeModel:
         return self
 
 
-def install_worker_stubs(monkeypatch, *, fake_evaluate):
+def install_worker_stubs(monkeypatch, *, fake_evaluate, captured_model_kwargs=None):
     fake_torch = types.SimpleNamespace(
         load=lambda *args, **kwargs: {"model": {"weights": 1}},
         device=lambda value: value,
@@ -47,7 +47,13 @@ def install_worker_stubs(monkeypatch, *, fake_evaluate):
 
     fake_models_pkg = types.ModuleType("models")
     fake_main_model = types.ModuleType("models.main_model")
-    fake_main_model.TSDiffuser_Generic = lambda *args, **kwargs: FakeModel()
+
+    def fake_model(*args: object, **kwargs: object):
+        if captured_model_kwargs is not None:
+            captured_model_kwargs.update(kwargs)
+        return FakeModel()
+
+    fake_main_model.TSDiffuser_Generic = fake_model
     fake_models_pkg.main_model = fake_main_model
 
     fake_inference_ad = types.ModuleType("sdk.inference_ad")
@@ -60,6 +66,7 @@ def install_worker_stubs(monkeypatch, *, fake_evaluate):
     monkeypatch.setitem(sys.modules, "models.main_model", fake_main_model)
     monkeypatch.setitem(sys.modules, "sdk.inference_ad", fake_inference_ad)
     monkeypatch.setattr(sdk, "inference_ad", fake_inference_ad, raising=False)
+    monkeypatch.setattr(inference_worker.resource_tracker, "unregister", lambda *_args, **_kwargs: None)
 
     return fake_inference_ad
 
@@ -76,6 +83,7 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
             "dtype": "float32",
             "window_indices": [0, 1],
             "split": 4,
+            "batch_size": 32,
         },
         "model_path": "model.pth",
         "config": {"model": {"target_dim": 4}},
@@ -85,8 +93,8 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
         "seed": 7,
         "deterministic": False,
         "preprocess_model_dir": None,
-        "use_dpm_solver": False,
         "dpm_steps": 20,
+        "num_active_features": 3,
         "valid_feature_mask": [True, True, True, False],
     }
     args_path.write_text(json.dumps(args))
@@ -95,10 +103,12 @@ def build_worker_args(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_path):
     events = []
+    captured_model_kwargs = {}
 
     class FakeSharedMemory:
         def __init__(self, name):
             assert name == "fake-shm"
+            self._name = name
             self.buf = bytearray(np.zeros((2, 3, 4), dtype=np.float32).nbytes)
             self.closed = False
 
@@ -108,7 +118,7 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
 
     fake_shm = FakeSharedMemory("fake-shm")
 
-    def fake_evaluate(model, loader1, loader2, nsample, use_dpm_solver, dpm_steps, valid_feature_mask):
+    def fake_evaluate(model, loader1, loader2, nsample, dpm_steps, window_seeds, valid_feature_mask):
         events.append(
             (
                 "evaluate",
@@ -116,8 +126,8 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
                 loader1,
                 loader2,
                 nsample,
-                use_dpm_solver,
                 dpm_steps,
+                window_seeds,
                 valid_feature_mask,
             )
         )
@@ -128,10 +138,14 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
             "recon": np.array([[4.0]]),
         }
 
-    fake_inference_ad = install_worker_stubs(monkeypatch, fake_evaluate=fake_evaluate)
+    fake_inference_ad = install_worker_stubs(
+        monkeypatch,
+        fake_evaluate=fake_evaluate,
+        captured_model_kwargs=captured_model_kwargs,
+    )
 
-    def fake_get_dataloader_from_windows(windows, *, split, window_indices):
-        events.append(("loaders", fake_shm.closed, windows.shape, split, tuple(window_indices)))
+    def fake_get_dataloader_from_windows(windows, *, batch_size, split, window_indices):
+        events.append(("loaders", fake_shm.closed, windows.shape, batch_size, split, tuple(window_indices)))
         return ["loader1"], ["loader2"]
 
     fake_inference_ad.get_dataloader_from_windows = fake_get_dataloader_from_windows
@@ -145,9 +159,11 @@ def test_worker_keeps_shared_memory_open_until_after_evaluate(monkeypatch, tmp_p
     saved = json.loads(result_path.read_text())
     assert saved["gpu_id"] == 0
     assert saved["results"]["residual"] == [1.0]
+    assert captured_model_kwargs["feature_embedding_mode"] == "shared_mean_norm_matched_zero_pad"
+    assert captured_model_kwargs["num_active_features"] == 3
     assert events == [
-        ("loaders", False, (2, 3, 4), 4, (0, 1)),
-        ("evaluate", False, ["loader1"], ["loader2"], 5, False, 20, [True, True, True, False]),
+        ("loaders", False, (2, 3, 4), 32, 4, (0, 1)),
+        ("evaluate", False, ["loader1"], ["loader2"], 5, 20, [7, 8], [True, True, True, False]),
         "close",
     ]
     assert fake_shm.closed is True
@@ -159,6 +175,7 @@ def test_worker_closes_shared_memory_when_evaluate_fails(monkeypatch, tmp_path):
     class FakeSharedMemory:
         def __init__(self, name):
             assert name == "fake-shm"
+            self._name = name
             self.buf = bytearray(np.zeros((2, 3, 4), dtype=np.float32).nbytes)
             self.closed = False
 
@@ -168,12 +185,15 @@ def test_worker_closes_shared_memory_when_evaluate_fails(monkeypatch, tmp_path):
 
     fake_shm = FakeSharedMemory("fake-shm")
 
-    def fake_evaluate(model, loader1, loader2, nsample, use_dpm_solver, dpm_steps, valid_feature_mask):
+    def fake_evaluate(model, loader1, loader2, nsample, dpm_steps, window_seeds, valid_feature_mask):
         events.append(("evaluate", fake_shm.closed))
         raise RuntimeError("boom")
 
     fake_inference_ad = install_worker_stubs(monkeypatch, fake_evaluate=fake_evaluate)
-    fake_inference_ad.get_dataloader_from_windows = lambda windows, *, split, window_indices: (["loader1"], ["loader2"])
+    fake_inference_ad.get_dataloader_from_windows = lambda windows, *, batch_size, split, window_indices: (
+        ["loader1"],
+        ["loader2"],
+    )
     monkeypatch.setattr(inference_worker.shared_memory, "SharedMemory", lambda name: fake_shm)
 
     args_path, result_path = build_worker_args(tmp_path)
