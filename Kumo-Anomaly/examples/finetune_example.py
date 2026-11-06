@@ -519,6 +519,10 @@ def main() -> None:
     world_size = max(1, world_size)
 
     if world_size > 1:
+        # Resolve (and, if needed, download) the pretrained assets once here, before the
+        # ranks start. Otherwise every spawned rank downloads into the same path at the
+        # same time on a cold cache and can read a half-written file.
+        resolve_model_assets(args)
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = str(find_free_port())
         mp.spawn(main_worker, args=(world_size, args), nprocs=world_size, join=True)

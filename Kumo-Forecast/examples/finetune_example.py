@@ -563,6 +563,10 @@ def main() -> None:
     world_size = max(1, world_size)
 
     if world_size > 1:
+        # Download the warm-start checkpoint once here, before the ranks start. Otherwise
+        # every spawned rank downloads into the same path at the same time on a cold cache
+        # and can read a half-written file. Ranks then find the cached files.
+        resolve_checkpoint_init(args)
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = str(find_free_port())
         mp.spawn(main_worker, args=(world_size, args), nprocs=world_size, join=True)
