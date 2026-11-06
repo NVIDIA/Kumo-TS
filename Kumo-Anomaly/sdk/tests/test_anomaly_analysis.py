@@ -81,7 +81,8 @@ def test_perform_anomaly_analysis_with_scs_strategy(monkeypatch, numeric_df, inf
     )
 
     assert list(result.columns) == ["feature_1", "feature_2", "feature_3", "Anomaly", "MAE"]
-    assert result["Anomaly"].tolist() == [False, True, False, True, False]
+    assert result["Anomaly"].dtype == np.int64
+    assert result["Anomaly"].tolist() == [0, 1, 0, 1, 0]
     assert np.array_equal(result["MAE"].to_numpy(), inference_results["residual"])
     _, kwargs = mock_inference.call_args
     assert kwargs["model_path"] == "model.pth"
@@ -92,6 +93,38 @@ def test_perform_anomaly_analysis_with_scs_strategy(monkeypatch, numeric_df, inf
     detector_scores, detector_target = mock_thresholder.detect_anomalies.call_args.args
     np.testing.assert_array_equal(detector_scores, inference_results["residual"])
     np.testing.assert_array_equal(detector_target, inference_results["target"])
+
+
+@pytest.mark.parametrize("strategy", ["scs", "macs"])
+@pytest.mark.parametrize(
+    "flags",
+    [
+        np.array([False, True, False, True, False]),  # boolean mask (custom thresholder)
+        np.array([0, 1, 0, 1, 0]),  # native int mask (built-in thresholders)
+        np.array([0, 1, 0, 1, 0, 1, 1]),  # mask padded beyond the input rows
+    ],
+    ids=["bool", "int", "padded"],
+)
+def test_anomaly_column_is_int64_zero_one(monkeypatch, numeric_df, inference_results, strategy, flags):
+    """REQ-1: ``Anomaly`` is int64 (0 = normal, 1 = anomaly), one row per input row."""
+    monkeypatch.setattr(anomaly_analysis, "inference_ad_tesseract2_mp", Mock(return_value=inference_results))
+    thresholder = Mock()
+    thresholder.detect_anomalies.return_value = flags
+    strategy_holder = Mock()
+    setattr(strategy_holder, f"{strategy}_thresholder", thresholder)
+    class_name = "SCSThresholdStrategy" if strategy == "scs" else "MACSThresholdStrategy"
+    monkeypatch.setattr(anomaly_analysis, class_name, Mock(return_value=strategy_holder))
+
+    result = anomaly_analysis.perform_anomaly_analysis_with_diffusion(
+        numeric_df,
+        threshold_strategy=strategy,
+        model_path="model.pth",
+        model_config_path="config.yaml",
+    )
+
+    assert result["Anomaly"].dtype == np.int64
+    assert result["Anomaly"].tolist() == [0, 1, 0, 1, 0]
+    assert len(result) == len(numeric_df)
 
 
 def test_threshold_and_explanation_exclude_padded_dimensions(monkeypatch):
