@@ -32,12 +32,10 @@ Usage:
 
 **NEW: Fast Inference with DPM-Solver**
 -----------------------------------------------------------------------
-Set use_dpm_solver=True for 50-100x speedup:
 
     results = evaluate(
         model, test_loader1, test_loader2,
         nsample=30,
-        use_dpm_solver=True,
         dpm_steps=20
     )
 
@@ -233,11 +231,11 @@ def evaluate(
     epoch_number="",
     name="",
     save_results=True,
-    use_dpm_solver=False,
     dpm_steps=20,
+    window_seeds=None,
 ):
     """
-    Evaluate the model on test data with optional DPM-Solver for fast inference.
+    Evaluate the model on test data using DPM-Solver++.
 
     Args:
         model: The diffusion model
@@ -250,23 +248,18 @@ def evaluate(
         epoch_number: Current epoch number
         name: Additional name for saved files
         save_results: Whether to save results to disk
-        use_dpm_solver: If True, use DPM-Solver for 50-100x faster inference
         dpm_steps: Number of DPM-Solver steps (10-50, default: 20)
 
     Returns:
         eval_outputs: Dictionary containing evaluation results
 
-    Note:
-        Setting use_dpm_solver=True with dpm_steps=20 provides ~50x speedup
-        with minimal quality loss compared to standard 1000-step diffusion.
-
     Example:
-        # Standard inference (slow)
+        # Inference with the default 20 DPM-Solver++ steps
         results = evaluate(model, loader1, loader2, nsample=30)
 
         # Fast inference with DPM-Solver
         results = evaluate(model, loader1, loader2, nsample=30,
-                          use_dpm_solver=True, dpm_steps=20)
+                          dpm_steps=20)
     """
     with torch.no_grad():
         model.eval()
@@ -281,33 +274,42 @@ def evaluate(
         all_generated_samples = []
 
         # Log sampling method
-        if use_dpm_solver:
-            logger.info(f"Using DPM-Solver with {dpm_steps} steps for fast inference")
-        else:
-            logger.info("Using standard diffusion sampling")
+        logger.info(f"Using DPM-Solver++ with {dpm_steps} steps for fast inference")
 
+        window_offset = 0
         with tqdm(zip(test_loader1, test_loader2, strict=False), mininterval=5.0, maxinterval=50.0) as it:
             for batch_no, (test_batch1, test_batch2) in enumerate(it, start=1):
-                # Process first batch with selected sampling method
-                if use_dpm_solver:
-                    samples, c_target, eval_points, observed_points, observed_time = model.evaluate_with_dpm(
-                        test_batch1, nsample, dpm_steps
-                    )
-                else:
-                    output = model.evaluate(test_batch1, nsample)
-                    samples, c_target, eval_points, observed_points, observed_time = output
+                generators = None
+                if window_seeds is not None:
+                    batch_size = len(test_batch1["observed_data"])
+                    batch_seeds = window_seeds[window_offset : window_offset + batch_size]
+                    if len(batch_seeds) != batch_size:
+                        raise ValueError(
+                            f"Missing per-window seeds: need {batch_size} at offset {window_offset}, "
+                            f"got {len(batch_seeds)}."
+                        )
+                    generators = []
+                    for window_seed in batch_seeds:
+                        generator = torch.Generator(device=model.device)
+                        generator.manual_seed(int(window_seed))
+                        generators.append(generator)
+                    window_offset += batch_size
+
+                # Process first batch using DPM-Solver++
+                generator_kwargs = {"generators": generators} if generators is not None else {}
+                samples, c_target, eval_points, observed_points, observed_time = model.evaluate_with_dpm(
+                    test_batch1, nsample, dpm_steps, **generator_kwargs
+                )
 
                 samples = samples.permute(0, 1, 3, 2)
                 c_target = c_target.permute(0, 2, 1)
                 eval_points = eval_points.permute(0, 2, 1)
                 observed_points = observed_points.permute(0, 2, 1)
 
-                # Process second batch with selected sampling method
-                if use_dpm_solver:
-                    samples2, _, eval_points2, _, _ = model.evaluate_with_dpm(test_batch2, nsample, dpm_steps)
-                else:
-                    output2 = model.evaluate(test_batch2, nsample)
-                    samples2, _, eval_points2, _, _ = output2
+                # Process second batch using DPM-Solver++
+                samples2, _, eval_points2, _, _ = model.evaluate_with_dpm(
+                    test_batch2, nsample, dpm_steps, **generator_kwargs
+                )
 
                 samples2 = samples2.permute(0, 1, 3, 2)
                 eval_points2 = eval_points2.permute(0, 2, 1)
@@ -344,6 +346,9 @@ def evaluate(
                     refresh=True,
                 )
 
+        if window_seeds is not None and window_offset != len(window_seeds):
+            raise ValueError(f"Unused per-window seeds: consumed {window_offset}, received {len(window_seeds)}.")
+
         # Save generated outputs
         all_target = torch.cat(all_target, dim=0).to("cpu")
         all_evalpoint = torch.cat(all_evalpoint, dim=0).to("cpu")
@@ -356,7 +361,7 @@ def evaluate(
                 os.makedirs(foldername)
 
             # Add suffix to indicate DPM-Solver was used
-            suffix = f"_dpm{dpm_steps}" if use_dpm_solver else ""
+            suffix = f"_dpm{dpm_steps}"
 
             save_data(
                 [
@@ -398,7 +403,7 @@ def evaluate(
         }
 
         if save_results:
-            suffix = f"_dpm{dpm_steps}" if use_dpm_solver else ""
+            suffix = f"_dpm{dpm_steps}"
             with open(
                 foldername + f"/{epoch_number}-result_nsample{nsample}{suffix}.json",
                 "w",
@@ -420,11 +425,10 @@ def sliding_window_evaluate(
     name: str = "",
     split: int = 4,
     save_results: bool = True,
-    use_dpm_solver: bool = False,
     dpm_steps: int = 20,
 ) -> Dict:
     """
-    Sliding window evaluation with optional DPM-Solver support.
+    Sliding window evaluation using DPM-Solver++.
 
     Args:
         model: The diffusion model
@@ -438,7 +442,6 @@ def sliding_window_evaluate(
         name: Additional name for saved files
         split: Number of splits for sliding window
         save_results: Whether to save results
-        use_dpm_solver: If True, use DPM-Solver for fast inference
         dpm_steps: Number of DPM-Solver steps
 
     Returns:
@@ -459,13 +462,9 @@ def sliding_window_evaluate(
 
     with torch.no_grad():
         for batch_no, test_batch in enumerate(tqdm(test_loader1), start=1):
-            # GPU-accelerated model evaluation with selected sampling method
-            if use_dpm_solver:
-                samples, c_target, *_ = model.evaluate_with_dpm(test_batch, nsample, dpm_steps)
-                samples2, *_ = model.evaluate_with_dpm(next(test_loader2), nsample, dpm_steps)
-            else:
-                samples, c_target, *_ = model.evaluate(test_batch, nsample)
-                samples2, *_ = model.evaluate(next(test_loader2), nsample)
+            # GPU-accelerated model evaluation using DPM-Solver++
+            samples, c_target, *_ = model.evaluate_with_dpm(test_batch, nsample, dpm_steps)
+            samples2, *_ = model.evaluate_with_dpm(next(test_loader2), nsample, dpm_steps)
 
             # Convert to NumPy arrays
             def convert_to_numpy(tensor):
@@ -515,7 +514,7 @@ def sliding_window_evaluate(
 
     # Save results using h5py (if available)
     if save_results and HAS_H5PY:
-        suffix = f"_dpm{dpm_steps}" if use_dpm_solver else ""
+        suffix = f"_dpm{dpm_steps}"
         output_path = Path(foldername) / f"{epoch_number}-sw_results_nsample{nsample}{name}{suffix}.h5"
         with h5py.File(output_path, "w") as h5:
             h5.create_dataset("target", data=all_target)
@@ -539,11 +538,10 @@ def ensemble(
     scaler=1,
     name="",
     save_results=True,
-    use_dpm_solver=False,
     dpm_steps=20,
 ):
     """
-    Ensemble evaluation with optional DPM-Solver support.
+    Ensemble evaluation using DPM-Solver++.
 
     Args:
         model: The diffusion model
@@ -552,7 +550,6 @@ def ensemble(
         scaler: Scaling factor
         name: Name for saved files
         save_results: Whether to save results
-        use_dpm_solver: If True, use DPM-Solver for fast inference
         dpm_steps: Number of DPM-Solver steps
 
     Returns:
@@ -575,11 +572,8 @@ def ensemble(
             batch_generated = np.array([], dtype=np.float32)
 
             for test_batch in test_loader:
-                # GPU-accelerated model evaluation with selected sampling method
-                if use_dpm_solver:
-                    output = model.evaluate_with_dpm(test_batch, 1, dpm_steps)
-                else:
-                    output = model.evaluate(test_batch, 1)
+                # GPU-accelerated model evaluation using DPM-Solver++
+                output = model.evaluate_with_dpm(test_batch, 1, dpm_steps)
 
                 samples, c_target, eval_points, observed_points, _ = output
 
@@ -620,7 +614,7 @@ def ensemble(
 
     if save_results and HAS_H5PY:
         base_path = Path(name).with_suffix("")
-        suffix = f"_dpm{dpm_steps}" if use_dpm_solver else ""
+        suffix = f"_dpm{dpm_steps}"
         data_path = f"{base_path}_data{suffix}.h5"
         with h5py.File(data_path, "w") as h5:
             h5.create_dataset("target", data=all_target)

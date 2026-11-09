@@ -14,6 +14,7 @@ from .forecasting import (
     load_forecasting_config,
     perform_forecasting,
 )
+from .imputation import fit_impute_scaler_stats
 
 __all__ = [
     "CHECKPOINT_BASE",
@@ -23,6 +24,7 @@ __all__ = [
     "ForecastingConfig",
     "NVTesseractForecasting",
     "download_model_weights",
+    "fit_impute_scaler_stats",
     "load_forecasting_config",
     "perform_forecasting",
 ]
