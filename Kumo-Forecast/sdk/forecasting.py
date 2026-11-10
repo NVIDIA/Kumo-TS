@@ -701,8 +701,9 @@ def autoregressive_forecast(model, x_enc, input_mask, model_horizon, target_hori
             # This effectively slides the window by model_horizon steps
             current_input = extended[:, :, -seq_len:]
 
-            # Update mask (all ones since we're using predictions)
-            current_mask = torch.ones(B, seq_len, dtype=torch.long, device=device)
+            # Slide the mask with the window: rows that were unobserved stay unobserved, new predictions are valid
+            new_valid = torch.ones(B, model_horizon, dtype=current_mask.dtype, device=current_mask.device)
+            current_mask = torch.cat([current_mask, new_valid], dim=1)[:, -seq_len:]
 
     # Concatenate all predictions
     # List of [B, C, steps] -> [B, C, target_horizon]
