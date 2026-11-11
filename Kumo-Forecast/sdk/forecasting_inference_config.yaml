@@ -79,3 +79,20 @@ inference:
   integrated_gradients_reduce: l2
   # Let integrated-gradient attribution flow through model normalization statistics.
   integrated_gradients_grad_through_norm: true
+  # Route NULL handling to the missingness-aware impute model instead of zero-filling.
+  # Not supported together with DARR (context_df) or interpretability.
+  handle_missingness: false
+  # Missingness checkpoint: .pt file, folder (with config.json or config_base.json), or hf://org/repo[@rev][/subfolder];
+  # null uses the released hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0.
+  impute_ckpt: null
+  # Missingness reference scaler: "history" (fit on observed input rows), "checkpoint" (saved training standardizer),
+  # or "provided" (impute_scaler_stats).
+  impute_normalization: history
+  # Source dataset (e.g. ETTh1) whose saved standardizer to use with impute_normalization "checkpoint"; null if only one.
+  impute_source_dataset: null
+  # Missingness channel mapping: "name" (align to the checkpoint's training channels) or "positional" (input order).
+  impute_channel_alignment: name
+  # Missingness "history" normalization only: fit the scaler on the last N input rows; null uses every row passed in.
+  impute_history_rows: null
+  # Missingness "provided" normalization: {mean: {column: value}, std: {column: value}}, e.g. from fit_impute_scaler_stats.
+  impute_scaler_stats: null

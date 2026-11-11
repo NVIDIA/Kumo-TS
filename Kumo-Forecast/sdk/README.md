@@ -164,6 +164,101 @@ The returned DataFrame is the explanation-aligned forecast (single forward pass,
 
 If the input DataFrame has more than one numeric column, the feature-axis decomposition runs automatically: the report gains channel-by-horizon attribution and feature-axis embedding-stability pages. By default attribution is measured in latent space (output-agnostic); set `channel_output_aware=True` to attribute the target channel's forecast directly.
 
+### Missingness-aware forecasting
+
+By default NULLs are zero-filled before the base forecaster runs. Set
+`handle_missingness=True` to route the call to the missingness-aware
+missingness-aware model (`impute/`, Backbone-LF+ CRS) instead:
+
+```python
+config = ForecastingConfig(
+    target_column="OT",
+    forecast_horizon=96,
+    handle_missingness=True,
+    # impute_ckpt defaults to the released checkpoint hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0
+)
+forecasts = perform_forecasting(df=df_with_nans, config=config)
+```
+
+or in YAML:
+
+```yaml
+inference:
+  handle_missingness: true
+  impute_ckpt: hf://nvidia/Kumo-Forecast@main/kumo-forecast-1.2.0   # optional; pin a revision in production
+```
+
+#### Where the impute checkpoint comes from
+
+`impute_ckpt` accepts:
+
+- `None` (default): the released checkpoint, `hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0`.
+- `hf://<org>/<repo>[@revision][/subfolder]`: a Hugging Face Hub location, e.g. `hf://nvidia/Kumo-Forecast@<tag-or-commit>/kumo-forecast-1.2.0`. Only `best_model.pt` and the config (`config_base.json`, or `config.json`) in that folder are downloaded, into the standard Hugging Face cache (`~/.cache/huggingface/hub`, or `HF_HOME` / `HF_HUB_CACHE`). They are resolved once per process and reused.
+- A local `.pt` file, or a folder containing one plus `config.json` or `config_base.json` (e.g. a training run's output).
+
+Private or gated repos use your Hugging Face login (`huggingface-cli login`) or `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN`. Set `local_files_only=True` to run offline from the cache after one online download. Pin `@revision` (a tag or commit) in production so a repo update can't change forecasts underneath you.
+
+To publish a new impute checkpoint, upload `best_model.pt` and an inference-only `config_base.json` (the fields the loader reads: model type and sizes, `seq_len` / `pred_len` / `patch_len`, `cross_channel_n_heads`, module switches, `target_col`, and `meta.n_channels` / `meta.channels` / `meta.source_union_channels`) into one folder of the repo. The released `kumo-forecast-1.2.0/` folder contains exactly these two files. Add `meta.dataset_metadata` to `config_base.json` only if you want `impute_normalization="checkpoint"` to be available.
+
+What happens on this path (it mirrors how the missingness model's training pipeline prepares data):
+
+1. **Channel alignment by name.** The target goes to the checkpoint's target slot and every feature to the slot its column name had in training (read from `config.json`: `meta.source_union_channels` for pooled multi-CSV training, `meta.channels` for single-CSV training). Training channels missing from your input are fed as padding (`valid_channel_mask=0`), exactly like pooled training pads sources that lack a column. Outputs are mapped back to your column names.
+2. **Fixed, training-style normalization.** Each channel is standardized with one fixed scaler fit on *observed* values only (the same maths as the training-split `ChannelObservedScaler`) — never re-fit per window, so the adaptive normalizer's learned priors keep their training meaning.
+3. Per-channel / per-timestep masks are built from the real NULLs **before** anything is filled; gaps are then zero-filled in scaled space.
+4. The window's missing rate (over the valid channels) is passed to the model so the adaptive normalizer engages at high missingness (> 50%).
+5. Forecasts are mapped back to original units. The output format is identical to the default path (`{target_column}_forecast`, or every input channel with `return_all_channels=True`).
+
+Impute-specific settings:
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `impute_ckpt` | `None` | Checkpoint location: `None` = released `hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0`; `hf://org/repo[@rev][/subfolder]`; or a local `.pt` / folder with `config.json` or `config_base.json`. See "Where the impute checkpoint comes from". |
+| `impute_normalization` | `"history"` | `"history"`: fit the scaler on the observed rows of `df` — pass real history, not just the last `seq_len` rows (a warning is logged below `2 * seq_len` rows). `"checkpoint"`: reuse the training standardizer saved in the checkpoint (for data from a training source dataset). `"provided"`: use `impute_scaler_stats`. |
+| `impute_history_rows` | `None` | `"history"` only: fit the scaler on the last N rows of `df` (must be `>= seq_len`), so very old regimes don't skew it and results don't depend on how much history a caller sends. `None` uses every row. |
+| `impute_scaler_stats` | `None` | `"provided"` only: stored reference statistics `{"mean": {column: value}, "std": {column: value}}` for every input column (std > 0). Entries for columns not in the input are ignored with a warning. |
+| `impute_source_dataset` | `None` | With `"checkpoint"` normalization, which training source's standardizer to use, by CSV stem (e.g. `"ETTh1"`). Optional when the checkpoint has a single source. |
+| `impute_channel_alignment` | `"name"` | `"name"`: align to the training schema; unknown columns raise `ValueError`. `"positional"`: feed channels in input order (channel identities and per-channel priors then follow position — use only for data whose columns don't match the training names). |
+
+> **Custom datasets:** the default `impute_channel_alignment="name"` only accepts feature columns whose names
+> match the checkpoint's training channels (for the released ETT checkpoint: `HUFL`, `HULL`, `LUFL`, `LULL`,
+> `MUFL`, `MULL`). For any other dataset, pass `impute_channel_alignment="positional"`: the `target_column` is Y
+> (slot 0) and the remaining numeric columns are the X channels, fed in the order given. Keep that column order
+> fixed across requests, and send a temporarily missing sensor as an all-NULL column instead of dropping it, so
+> every other channel keeps its position.
+>
+> ```python
+> config = ForecastingConfig(
+>     target_column="sales",
+>     handle_missingness=True,
+>     impute_channel_alignment="positional",
+> )
+> ```
+
+For deployments, compute reference statistics once on a clean period, store them, and reuse them on every
+request (the same idea as the training-split scaler, for series the checkpoint wasn't trained on):
+
+```python
+from sdk import ForecastingConfig, fit_impute_scaler_stats, perform_forecasting
+
+stats = fit_impute_scaler_stats(reference_df, target_column="OT")   # observed values only; plain JSON/YAML
+config = ForecastingConfig(
+    target_column="OT",
+    handle_missingness=True,
+    impute_normalization="provided",
+    impute_scaler_stats=stats,
+)
+forecasts = perform_forecasting(df=latest_rows, config=config)   # only the last seq_len rows are needed
+```
+
+Other rules:
+
+- `seq_len` must match the checkpoint. If `seq_len` is left at the SDK default (`512`), the checkpoint's value is used automatically; any other mismatch raises `ValueError`.
+- `forecast_horizon` longer than the checkpoint's `pred_len` is produced autoregressively (predictions are appended as observed history; the scaler stays fixed).
+- A feature named like the checkpoint's target channel while `target_column` is something else raises `ValueError`.
+- With `"positional"` alignment on a CRS checkpoint, channels beyond the trained channel-embedding size share one identity embedding (a warning is logged).
+- The target must have at least one observed value in the input window.
+- Not supported yet together with DARR (`context_df`) or `interpretability=True`; both raise `ValueError`.
+
 ## Function signature
 
 ```python
@@ -209,8 +304,8 @@ on `ForecastingConfig` and are documented in the commented YAML template.
 ## Preprocessing expectations
 
 - Timestamp column must be parseable by pandas and free of NULLs.
-- Target column must be numeric; NULLs are filled with zeros.
-- All numeric features are automatically included; NULLs become zeros.
+- Target column must be numeric; NULLs are filled with zeros (or, with `handle_missingness=True`, passed to the missingness-aware model as masks — see above).
+- All numeric features are automatically included; NULLs become zeros (same `handle_missingness` option).
 - Numeric feature columns should match the set and order the checkpoint/standardizer was trained with; a different order silently misattributes forecasts, and a different column count fails at standardization with a broadcasting error.
 - Input length must be at least `seq_len`; otherwise `ValueError` is raised.
 
@@ -308,3 +403,4 @@ Common safeguards raised as `ValueError` include:
 ## Examples and tests
 
 See `sdk/tests/test_forecasting.py` for unit test coverage with mockers and `sdk/quick_example.py` for an end-to-end script.
+The missingness-aware path is covered by `sdk/tests/test_imputation.py` (real-checkpoint tests are opt-in via `KUMO_IMPUTE_CKPT`, `KUMO_IMPUTE_HF`, `KUMO_IMPUTE_CSV`) and demonstrated in `examples/missingness_quickstart.py`.

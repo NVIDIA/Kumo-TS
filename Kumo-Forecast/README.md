@@ -152,9 +152,12 @@ Kumo-Forecast/
 ├── pyproject.toml                    # Project configuration and dependencies
 ├── README.md                         # This file
 ├── examples/
-│   └── finetune_example.py           # CSV fine-tuning example
+│   ├── finetune_example.py           # CSV fine-tuning example
+│   └── missingness_quickstart.py     # Forecasting with gaps (handle_missingness=True)
+├── impute/                           # Missingness-aware model (Backbone-LF+ CRS) and checkpoint loader
 ├── sdk/
 │   ├── forecasting.py                # Main SDK entry point (with auto-download)
+│   ├── imputation.py                 # Missingness-aware path (masks, normalization, channel alignment)
 │   ├── quick_example.py              # End-to-end demo script
 │   └── tests/                        # Test files and datasets
 ├── dataset_longhorizon.py            # Dataset utilities and Standardizer
@@ -208,6 +211,8 @@ The forecasting model requires pre-trained weights from the Hugging Face reposit
   - `standardizer.pkl` - Data normalization parameters
   - `moment_head_512_6hr.pt` - Model checkpoint for standard 6-hour forecasting (standard forecasting only)
   - `run8_best_model_cr.pt` - Model checkpoint for cross-channel forecasting (cross-channel forecasting only)
+- Missingness-aware model (`handle_missingness=True`): `kumo-forecast-1.2.0/best_model.pt` + `config_base.json`
+  from the same repository, downloaded once into the Hugging Face cache (`impute_ckpt` overrides the location)
 
 ## Interpretability
 
@@ -277,6 +282,21 @@ results = perform_forecasting(
     context_df=context_df,  # Additional context for better predictions
 )
 ```
+
+### Forecasting With Missing Values
+```python
+from sdk.forecasting import ForecastingConfig, perform_forecasting
+
+# df may contain NaN gaps in the target and feature columns
+config = ForecastingConfig(
+    target_column="OT",
+    forecast_horizon=48,
+    handle_missingness=True,  # uses hf://nvidia/Kumo-Forecast/kumo-forecast-1.2.0
+)
+results = perform_forecasting(df=df, config=config)
+```
+See the "Missingness-aware forecasting" section of `sdk/README.md` for normalization and channel-alignment options,
+and `examples/missingness_quickstart.py` for a runnable script.
 
 ### Interpretability (Lag x Horizon Explanations)
 ```python
