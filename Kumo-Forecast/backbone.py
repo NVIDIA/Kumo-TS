@@ -746,7 +746,7 @@ class BackboneModel(nn.Module):
         )
         x_enc = torch.nan_to_num(x_enc, nan=0, posinf=0, neginf=0)
         x_enc = self.tokenizer(x=x_enc)
-        enc_in = self.patch_embedding(x_enc, mask=torch.ones_like(input_mask))
+        enc_in = self.patch_embedding(x_enc, mask=input_mask)
 
         n_patches = enc_in.shape[2]
         enc_in = enc_in.reshape((batch_size * n_channels, n_patches, self.config.d_model))
