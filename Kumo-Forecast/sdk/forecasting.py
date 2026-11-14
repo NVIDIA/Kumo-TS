@@ -53,6 +53,8 @@ from interpretability import (
 )
 from model import build_model
 
+from .imputation import _future_timestamps
+
 logger = logging.getLogger(__name__)
 
 # Define DEVICE here to avoid import complexity
@@ -2375,14 +2377,7 @@ def _run_interpretability(
     pred_lc = np.swapaxes(base_std, 0, 1).reshape(-1, base_std.shape[0])
     pred_orig_lc = standardizer.inverse(pred_lc)
 
-    time_diffs = working_df[timestamp_column].diff().dropna()
-    inferred_freq = (
-        time_diffs.mode()[0]
-        if len(time_diffs.mode()) > 0
-        else (time_diffs.median() if len(time_diffs) else pd.Timedelta(hours=1))
-    )
-    last_input_time = working_df[timestamp_column].iloc[-1]
-    forecast_timestamps = pd.date_range(start=last_input_time + inferred_freq, periods=H, freq=inferred_freq)
+    forecast_timestamps = _future_timestamps(working_df[timestamp_column], H)
 
     output_channels = columns_to_process if return_all_channels else [target_column]
     forecast_cols: dict[str, Any] = {timestamp_column: pd.to_datetime(forecast_timestamps)}
@@ -2963,17 +2958,8 @@ def perform_forecasting(
         # Reshape back to [B, C, H]
         P_orig_reshaped = P_orig.reshape(B * H, C).reshape(B, H, C).transpose(0, 2, 1)
 
-        # Infer frequency from timestamp column
-        time_diffs = working_df[cfg.timestamp_column].diff().dropna()
-        if len(time_diffs) > 0:
-            inferred_freq = time_diffs.mode()[0] if len(time_diffs.mode()) > 0 else time_diffs.median()
-        else:
-            inferred_freq = pd.Timedelta(hours=1)
-
-        last_input_time = working_df[cfg.timestamp_column].iloc[-1]
-        forecast_timestamps = pd.date_range(
-            start=last_input_time + inferred_freq, periods=cfg.forecast_horizon, freq=inferred_freq
-        )
+        # Continue the input timestamps at their inferred frequency
+        forecast_timestamps = _future_timestamps(working_df[cfg.timestamp_column], cfg.forecast_horizon)
 
         # Emit the target channel only (default), or one {column}_forecast per
         # processed channel when return_all_channels=True. P_orig_reshaped is

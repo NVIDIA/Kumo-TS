@@ -505,12 +505,27 @@ def _warn_on_window_quality(window: MissingnessWindow, columns: list[str], info:
 
 
 def _future_timestamps(times: pd.Series, horizon: int) -> pd.DatetimeIndex:
-    time_diffs = times.diff().dropna()
-    if len(time_diffs) > 0:
-        modes = time_diffs.mode()
-        inferred_freq = modes[0] if len(modes) > 0 else time_diffs.median()
-    else:
-        inferred_freq = pd.Timedelta(hours=1)
+    """Continue ``times`` for ``horizon`` steps at the input sampling frequency.
+
+    Calendar frequencies (month/quarter/year starts or ends, business days, ...) have no
+    fixed ``Timedelta``, so use the pandas-inferred frequency when the input is regular and
+    fall back to the most common step otherwise.
+    """
+    inferred_freq = None
+    if len(times) >= 3:
+        try:
+            freq = pd.infer_freq(times)
+        except (TypeError, ValueError):
+            freq = None
+        if freq is not None:
+            inferred_freq = pd.tseries.frequencies.to_offset(freq)
+    if inferred_freq is None:
+        time_diffs = times.diff().dropna()
+        if len(time_diffs) > 0:
+            modes = time_diffs.mode()
+            inferred_freq = modes[0] if len(modes) > 0 else time_diffs.median()
+        else:
+            inferred_freq = pd.Timedelta(hours=1)
     return pd.date_range(start=times.iloc[-1] + inferred_freq, periods=horizon, freq=inferred_freq)
 
 

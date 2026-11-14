@@ -1186,6 +1186,41 @@ def test_perform_forecasting_allows_custom_timestamp_column():
     assert "timestamp" not in result.columns
 
 
+@pytest.mark.parametrize("freq", ["h", "D", "W-SUN", "MS", "ME", "QS", "B"])
+def test_perform_forecasting_timestamps_follow_input_frequency(freq):
+    timestamps = pd.date_range("2023-01-02", periods=24, freq=freq)
+    df = pd.DataFrame({"timestamp": timestamps, "target": np.arange(24, dtype=np.float32)})
+
+    result = perform_forecasting(
+        df,
+        seq_len=12,
+        forecast_horizon=6,
+        model_horizon=6,
+        standardizer_pkl="fake_std.pkl",
+        ckpt="fake_ckpt.pt",
+    )
+
+    expected = pd.date_range(timestamps[-1], periods=7, freq=freq)[1:]
+    assert list(result["timestamp"]) == list(expected)
+
+
+def test_perform_forecasting_timestamps_use_most_common_step_for_irregular_input():
+    timestamps = pd.date_range("2024-01-01", periods=12, freq="h").delete(5)
+    df = pd.DataFrame({"timestamp": timestamps, "target": np.arange(11, dtype=np.float32)})
+
+    result = perform_forecasting(
+        df,
+        seq_len=5,
+        forecast_horizon=3,
+        model_horizon=3,
+        standardizer_pkl="fake_std.pkl",
+        ckpt="fake_ckpt.pt",
+    )
+
+    expected = pd.date_range(timestamps[-1], periods=4, freq="h")[1:]
+    assert list(result["timestamp"]) == list(expected)
+
+
 def test_perform_forecasting_fills_null_targets():
     df = make_timeseries(num_rows=7)
     df.loc[0, "target"] = np.nan
